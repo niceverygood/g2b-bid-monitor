@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Bid } from '../types';
 import ScoreGauge from './ScoreGauge';
+import ProposalPanel from './ProposalPanel';
+import PipelinePanel from './PipelinePanel';
 
 interface BidCardProps {
   bid: Bid;
@@ -19,16 +21,12 @@ const REC_BADGE: Record<string, { label: string; color: string; bg: string }> = 
 function getDDay(clseDt: string): { label: string; color: string; pulse: boolean } {
   if (!clseDt) return { label: '', color: '#94A3B8', pulse: false };
   const now = new Date();
-  const close = new Date(clseDt.replace(/(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})/, '$1-$2-$3T$4:$5'));
+  // Try ISO format first ("2026-04-21 11:00:00"), then legacy 12-digit
+  let close = new Date(clseDt.replace(' ', 'T'));
   if (isNaN(close.getTime())) {
-    const isoClose = new Date(clseDt);
-    if (isNaN(isoClose.getTime())) return { label: '', color: '#94A3B8', pulse: false };
-    const diff = Math.ceil((isoClose.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-    if (diff < 0) return { label: '마감', color: '#64748B', pulse: false };
-    if (diff <= 3) return { label: `D-${diff}`, color: '#EF4444', pulse: true };
-    if (diff <= 7) return { label: `D-${diff}`, color: '#F59E0B', pulse: false };
-    return { label: `D-${diff}`, color: '#3B82F6', pulse: false };
+    close = new Date(clseDt.replace(/(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})/, '$1-$2-$3T$4:$5'));
   }
+  if (isNaN(close.getTime())) return { label: '', color: '#94A3B8', pulse: false };
   const diff = Math.ceil((close.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
   if (diff < 0) return { label: '마감', color: '#64748B', pulse: false };
   if (diff <= 3) return { label: `D-${diff}`, color: '#EF4444', pulse: true };
@@ -44,6 +42,11 @@ function formatPrice(price: number): string {
 
 function formatDate(dt: string): string {
   if (!dt) return '-';
+  // ISO-like: "2026-04-21 11:00:00"
+  if (dt.includes('-')) {
+    return dt.slice(0, 16);
+  }
+  // Legacy 12-digit: "202604211100"
   if (dt.length >= 12) {
     return `${dt.slice(0, 4)}-${dt.slice(4, 6)}-${dt.slice(6, 8)} ${dt.slice(8, 10)}:${dt.slice(10, 12)}`;
   }
@@ -52,6 +55,8 @@ function formatDate(dt: string): string {
 
 export default function BidCard({ bid, onToggleBookmark }: BidCardProps) {
   const [expanded, setExpanded] = useState(false);
+  const [showProposal, setShowProposal] = useState(false);
+  const [showPipeline, setShowPipeline] = useState(false);
 
   const badge = REC_BADGE[bid.recommendation] || REC_BADGE.NOT_ANALYZED;
   const dday = getDDay(bid.bid_clse_dt);
@@ -182,11 +187,34 @@ export default function BidCard({ bid, onToggleBookmark }: BidCardProps) {
               )}
 
               {/* Bottom meta */}
-              <div className="flex flex-wrap gap-x-4 text-[10px] text-[#64748B]">
+              <div className="flex flex-wrap items-center gap-x-4 text-[10px] text-[#64748B]">
                 <span>📋 {bid.bid_ntce_no}</span>
                 {bid.dminstt_nm && <span>🏢 {bid.dminstt_nm}</span>}
+                <div className="ml-auto flex gap-2">
+                  {bid.total_score >= 60 && (
+                    <button
+                      onClick={() => setShowPipeline(true)}
+                      className="px-3 py-1.5 bg-gradient-to-r from-[#10B981] to-[#059669] hover:from-[#059669] hover:to-[#047857] text-white text-xs font-medium rounded-lg transition-all"
+                    >
+                      🚀 입찰 준비
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setShowProposal(true)}
+                    className="px-3 py-1.5 bg-gradient-to-r from-[#3B82F6] to-[#8B5CF6] hover:from-[#2563EB] hover:to-[#7C3AED] text-white text-xs font-medium rounded-lg transition-all"
+                  >
+                    📄 제안서 생성
+                  </button>
+                </div>
               </div>
             </div>
+          )}
+
+          {showProposal && (
+            <ProposalPanel bidId={bid.id} onClose={() => setShowProposal(false)} />
+          )}
+          {showPipeline && (
+            <PipelinePanel bidId={bid.id} bidName={bid.bid_ntce_nm} onClose={() => setShowPipeline(false)} />
           )}
         </div>
 

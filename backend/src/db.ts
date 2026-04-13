@@ -81,6 +81,30 @@ export function initDB(): void {
     CREATE INDEX IF NOT EXISTS idx_clse ON bids(bid_clse_dt);
     CREATE INDEX IF NOT EXISTS idx_rec ON bids(recommendation);
 
+    CREATE TABLE IF NOT EXISTS proposals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      bid_id INTEGER NOT NULL,
+      bid_ntce_no TEXT NOT NULL,
+      doc_type TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now','localtime')),
+      UNIQUE(bid_ntce_no, doc_type)
+    );
+
+    CREATE TABLE IF NOT EXISTS pipeline_results (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      bid_id INTEGER NOT NULL,
+      bid_ntce_no TEXT NOT NULL,
+      checklist_json TEXT,
+      price_advice_json TEXT,
+      proposal_status_json TEXT,
+      errors_json TEXT,
+      status TEXT DEFAULT 'PENDING',
+      created_at TEXT DEFAULT (datetime('now','localtime')),
+      UNIQUE(bid_ntce_no)
+    );
+    CREATE INDEX IF NOT EXISTS idx_pipeline_bid ON pipeline_results(bid_ntce_no);
+
     CREATE TABLE IF NOT EXISTS collection_logs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       started_at TEXT DEFAULT (datetime('now','localtime')),
@@ -310,4 +334,93 @@ export function cleanOldBids(days: number): number {
 
 export function getRecentLogs(limit: number = 20) {
   return db.prepare('SELECT * FROM collection_logs ORDER BY started_at DESC LIMIT ?').all(limit);
+}
+
+// Proposals CRUD
+export function saveProposal(bidNtceNo: string, docType: string, content: string): void {
+  const bid = db.prepare('SELECT id FROM bids WHERE bid_ntce_no = ?').get(bidNtceNo) as { id: number } | undefined;
+  const bidId = bid?.id || 0;
+  db.prepare(`
+    INSERT INTO proposals (bid_id, bid_ntce_no, doc_type, content)
+    VALUES (@bid_id, @bid_ntce_no, @doc_type, @content)
+    ON CONFLICT(bid_ntce_no, doc_type) DO UPDATE SET content = @content, created_at = datetime('now','localtime')
+  `).run({ bid_id: bidId, bid_ntce_no: bidNtceNo, doc_type: docType, content });
+}
+
+export function getProposals(bidNtceNo: string): { doc_type: string; created_at: string }[] {
+  return db.prepare(`
+    SELECT doc_type, created_at FROM proposals
+    WHERE bid_ntce_no = ? ORDER BY id
+  `).all(bidNtceNo) as { doc_type: string; created_at: string }[];
+}
+
+export function getProposal(bidNtceNo: string, docType: string): { content: string; created_at: string } | undefined {
+  return db.prepare(`
+    SELECT content, created_at FROM proposals
+    WHERE bid_ntce_no = ? AND doc_type = ?
+  `).get(bidNtceNo, docType) as { content: string; created_at: string } | undefined;
+}
+
+// Pipeline CRUD
+export function savePipelineResult(bidNtceNo: string, data: {
+  bid_id: number;
+  checklist_json?: string;
+  price_advice_json?: string;
+  proposal_status_json?: string;
+  errors_json?: string;
+  status: string;
+}): void {
+  db.prepare(`
+    INSERT INTO pipeline_results (bid_id, bid_ntce_no, checklist_json, price_advice_json, proposal_status_json, errors_json, status)
+    VALUES (@bid_id, @bid_ntce_no, @checklist_json, @price_advice_json, @proposal_status_json, @errors_json, @status)
+    ON CONFLICT(bid_ntce_no) DO UPDATE SET
+      checklist_json = @checklist_json,
+      price_advice_json = @price_advice_json,
+      proposal_status_json = @proposal_status_json,
+      errors_json = @errors_json,
+      status = @status,
+      created_at = datetime('now','localtime')
+  `).run({
+    bid_id: data.bid_id,
+    bid_ntce_no: bidNtceNo,
+    checklist_json: data.checklist_json || null,
+    price_advice_json: data.price_advice_json || null,
+    proposal_status_json: data.proposal_status_json || null,
+    errors_json: data.errors_json || null,
+    status: data.status,
+  });
+}
+
+export function getPipelineResult(bidNtceNo: string): any | undefined {
+  return db.prepare('SELECT * FROM pipeline_results WHERE bid_ntce_no = ?').get(bidNtceNo);
+}
+
+export function getAllPipelineResults(): any[] {
+  return db.prepare(`
+    SELECT pr.*, b.bid_ntce_nm, b.total_score, b.recommendation, b.bid_clse_dt
+    FROM pipeline_results pr
+    JOIN bids b ON pr.bid_ntce_no = b.bid_ntce_no
+    ORDER BY b.total_score DESC
+  `).all();
+}
+
+export function getBidsForPipeline(minScore: number): Bid[] {
+  return db.prepare(`
+    SELECT b.* FROM bids b
+    LEFT JOIN pipeline_results pr ON b.bid_ntce_no = pr.bid_ntce_no
+    WHERE b.total_score >= ?
+    AND pr.id IS NULL
+    AND b.bid_clse_dt > datetime('now','localtime')
+    ORDER BY b.total_score DESC
+  `).all(minScore) as Bid[];
+}
+
+export function getDeadlineAlertBids(withinDays: number): Bid[] {
+  return db.prepare(`
+    SELECT * FROM bids
+    WHERE total_score >= 40
+    AND bid_clse_dt > datetime('now','localtime')
+    AND bid_clse_dt <= datetime('now','localtime','+' || ? || ' days')
+    ORDER BY bid_clse_dt ASC
+  `).all(withinDays) as Bid[];
 }
