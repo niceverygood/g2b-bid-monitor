@@ -165,6 +165,174 @@ app.get('/api/bids/:id/proposals/:docType', (req, res) => {
   }
 });
 
+// ===== 제안서 HTML 뷰 (Slack 링크용) =====
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function renderMarkdown(md: string): string {
+  // 경량 마크다운 렌더러: 헤더, bold, italic, 코드, 리스트, 표, 구분선, 단락
+  const lines = md.split('\n');
+  const html: string[] = [];
+  let inList = false;
+  let inTable = false;
+  let tableHeader: string[] = [];
+
+  const inline = (s: string) =>
+    escapeHtml(s)
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+      .replace(/`([^`]+)`/g, '<code>$1</code>');
+
+  const closeList = () => { if (inList) { html.push('</ul>'); inList = false; } };
+  const closeTable = () => { if (inTable) { html.push('</tbody></table>'); inTable = false; tableHeader = []; } };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (!trimmed) { closeList(); closeTable(); continue; }
+
+    // 구분선
+    if (/^-{3,}$/.test(trimmed) || /^={3,}$/.test(trimmed)) {
+      closeList(); closeTable();
+      html.push('<hr/>');
+      continue;
+    }
+
+    // 헤더
+    const h = trimmed.match(/^(#{1,6})\s+(.+)$/);
+    if (h) {
+      closeList(); closeTable();
+      const level = h[1].length;
+      html.push(`<h${level}>${inline(h[2])}</h${level}>`);
+      continue;
+    }
+
+    // 표
+    if (/^\|.*\|$/.test(trimmed)) {
+      const cells = trimmed.slice(1, -1).split('|').map(c => c.trim());
+      // 다음 줄이 구분선이면 헤더
+      const next = (lines[i + 1] || '').trim();
+      if (!inTable && /^\|[\s\-:|]+\|$/.test(next)) {
+        closeList();
+        inTable = true;
+        tableHeader = cells;
+        html.push('<table><thead><tr>' + cells.map(c => `<th>${inline(c)}</th>`).join('') + '</tr></thead><tbody>');
+        i++; // 구분선 건너뛰기
+        continue;
+      }
+      if (inTable) {
+        html.push('<tr>' + cells.map(c => `<td>${inline(c)}</td>`).join('') + '</tr>');
+        continue;
+      }
+    } else {
+      closeTable();
+    }
+
+    // 리스트
+    const li = trimmed.match(/^[-*]\s+(.+)$/);
+    if (li) {
+      if (!inList) { html.push('<ul>'); inList = true; }
+      html.push(`<li>${inline(li[1])}</li>`);
+      continue;
+    }
+    const ol = trimmed.match(/^(\d+)\.\s+(.+)$/);
+    if (ol) {
+      if (!inList) { html.push('<ul>'); inList = true; }
+      html.push(`<li>${inline(ol[2])}</li>`);
+      continue;
+    }
+    closeList();
+
+    // 단락
+    html.push(`<p>${inline(trimmed)}</p>`);
+  }
+  closeList(); closeTable();
+  return html.join('\n');
+}
+
+function htmlPage(title: string, body: string): string {
+  return `<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>${escapeHtml(title)}</title>
+<style>
+  :root { color-scheme: dark; }
+  body { max-width: 800px; margin: 0 auto; padding: 24px 20px 80px; background: #0B1220; color: #E2E8F0; font-family: -apple-system, 'Segoe UI', 'Noto Sans KR', sans-serif; line-height: 1.7; }
+  a { color: #60A5FA; }
+  h1 { font-size: 26px; border-bottom: 2px solid #1E293B; padding-bottom: 10px; margin-top: 28px; }
+  h2 { font-size: 20px; margin-top: 28px; color: #93C5FD; }
+  h3 { font-size: 17px; margin-top: 20px; color: #CBD5E1; }
+  h4, h5, h6 { margin-top: 16px; color: #CBD5E1; }
+  p { margin: 10px 0; }
+  ul { padding-left: 22px; }
+  li { margin: 4px 0; }
+  code { background: #1E293B; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
+  hr { border: 0; border-top: 1px solid #1E293B; margin: 24px 0; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14px; }
+  th, td { border: 1px solid #1E293B; padding: 8px 10px; text-align: left; }
+  th { background: #111827; color: #93C5FD; }
+  .nav { margin-bottom: 20px; font-size: 13px; color: #64748B; }
+  .nav a { margin-right: 12px; }
+  .meta { color: #64748B; font-size: 12px; margin-bottom: 20px; }
+</style>
+</head>
+<body>
+${body}
+</body>
+</html>`;
+}
+
+// GET /proposals/:bidNtceNo — 제안서 인덱스 페이지
+app.get('/proposals/:bidNtceNo', (req, res) => {
+  const bidNtceNo = req.params.bidNtceNo;
+  const proposals = getProposals(bidNtceNo);
+
+  if (proposals.length === 0) {
+    return res.type('html').send(htmlPage('제안서 없음',
+      `<h1>제안서가 없습니다</h1><p>공고번호 <code>${escapeHtml(bidNtceNo)}</code>에 대해 생성된 제안서가 없습니다.</p>`));
+  }
+
+  const items = (Object.entries(DOC_TYPES) as [DocType, string][])
+    .map(([type, label]) => {
+      const exists = proposals.find(p => p.doc_type === type);
+      if (exists) {
+        return `<li><a href="/proposals/${encodeURIComponent(bidNtceNo)}/${type}">📄 ${label}</a> <span class="meta">${exists.created_at}</span></li>`;
+      }
+      return `<li><span class="meta">📄 ${label} (미생성)</span></li>`;
+    }).join('\n');
+
+  res.type('html').send(htmlPage(`제안서 — ${bidNtceNo}`,
+    `<h1>📝 제안서 목록</h1>
+     <p class="meta">공고번호: ${escapeHtml(bidNtceNo)}</p>
+     <ul>${items}</ul>`));
+});
+
+// GET /proposals/:bidNtceNo/:docType — 제안서 단건 HTML 뷰
+app.get('/proposals/:bidNtceNo/:docType', (req, res) => {
+  const { bidNtceNo, docType } = req.params;
+  const proposal = getProposal(bidNtceNo, docType);
+  const label = DOC_TYPES[docType as DocType] || docType;
+
+  if (!proposal) {
+    return res.status(404).type('html').send(htmlPage('문서 없음',
+      `<div class="nav"><a href="/proposals/${encodeURIComponent(bidNtceNo)}">← 목록</a></div>
+       <h1>${escapeHtml(label)}</h1>
+       <p>아직 생성되지 않은 문서입니다.</p>`));
+  }
+
+  const body = `
+<div class="nav"><a href="/proposals/${encodeURIComponent(bidNtceNo)}">← 제안서 목록</a></div>
+<p class="meta">공고번호: ${escapeHtml(bidNtceNo)} · 생성: ${escapeHtml(proposal.created_at)}</p>
+${renderMarkdown(proposal.content)}
+`;
+  res.type('html').send(htmlPage(label, body));
+});
+
 // ===== 입찰 파이프라인 API =====
 
 // POST /api/bids/:id/pipeline — 단건 파이프라인 실행

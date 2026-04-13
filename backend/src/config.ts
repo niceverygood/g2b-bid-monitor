@@ -7,6 +7,8 @@ export const ENV = {
   SLACK_WEBHOOK_URL: process.env.SLACK_WEBHOOK_URL || '',
   PORT: parseInt(process.env.PORT || '3001'),
   FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:5173',
+  // Slack에서 제안서 보기 링크가 가리킬 백엔드 공개 URL (배포 환경에서는 실제 도메인으로 설정)
+  PUBLIC_BASE_URL: process.env.PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || '3001'}`,
 };
 
 // 바틀 맞춤 검색 키워드

@@ -100,6 +100,21 @@ export async function notifyPipelineResult(result: PipelineResult): Promise<bool
     : '-';
 
   const g2bUrl = `https://www.g2b.go.kr:8101/ep/invitation/publish/bidInfoDtl.do?bidno=${bid.bid_ntce_no}`;
+  const proposalsIndexUrl = `${ENV.PUBLIC_BASE_URL}/proposals/${encodeURIComponent(bid.bid_ntce_no)}`;
+
+  // 생성 성공한 제안서별 개별 링크
+  const DOC_LABELS: Record<string, string> = {
+    technical: '기술제안서',
+    execution: '사업수행계획서',
+    personnel: '투입인력',
+    company: '회사소개서',
+    track_record: '수행실적표',
+    pricing: '가격제안서',
+  };
+  const proposalLinks = result.proposals
+    .filter(p => p.success)
+    .map(p => `• <${ENV.PUBLIC_BASE_URL}/proposals/${encodeURIComponent(bid.bid_ntce_no)}/${p.docType}|${DOC_LABELS[p.docType] || p.label}>`)
+    .join('\n');
 
   const payload = {
     blocks: [
@@ -115,7 +130,11 @@ export async function notifyPipelineResult(result: PipelineResult): Promise<bool
         `📝 *제안서:* ${proposalSuccess}/6건 생성 완료\n` +
         `🎯 *전략:* ${result.priceAdvice?.strategy || bid.suggested_strategy || '-'}`,
       }},
+      ...(proposalLinks ? [{ type: 'section', text: { type: 'mrkdwn', text:
+        `📝 *제안서 바로가기*\n${proposalLinks}`,
+      }}] : []),
       { type: 'actions', elements: [
+        { type: 'button', text: { type: 'plain_text', text: '📝 제안서 6종 보기' }, url: proposalsIndexUrl, style: 'primary' },
         { type: 'button', text: { type: 'plain_text', text: '📄 나라장터 공고 보기' }, url: g2bUrl },
       ]},
       { type: 'divider' },
