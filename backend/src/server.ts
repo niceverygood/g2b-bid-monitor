@@ -172,12 +172,14 @@ function escapeHtml(s: string): string {
 }
 
 function renderMarkdown(md: string): string {
-  // 경량 마크다운 렌더러: 헤더, bold, italic, 코드, 리스트, 표, 구분선, 단락
+  // 경량 마크다운 렌더러: 헤더, bold, italic, 코드, 리스트, 표, 구분선, 단락, fenced code
   const lines = md.split('\n');
   const html: string[] = [];
   let inList = false;
   let inTable = false;
   let tableHeader: string[] = [];
+  let inCode = false;
+  let codeBuf: string[] = [];
 
   const inline = (s: string) =>
     escapeHtml(s)
@@ -191,6 +193,20 @@ function renderMarkdown(md: string): string {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const trimmed = line.trim();
+
+    // Fenced code block
+    if (/^```/.test(trimmed)) {
+      if (inCode) {
+        html.push(`<pre><code>${escapeHtml(codeBuf.join('\n'))}</code></pre>`);
+        codeBuf = [];
+        inCode = false;
+      } else {
+        closeList(); closeTable();
+        inCode = true;
+      }
+      continue;
+    }
+    if (inCode) { codeBuf.push(line); continue; }
 
     if (!trimmed) { closeList(); closeTable(); continue; }
 
@@ -250,6 +266,7 @@ function renderMarkdown(md: string): string {
     html.push(`<p>${inline(trimmed)}</p>`);
   }
   closeList(); closeTable();
+  if (inCode && codeBuf.length) html.push(`<pre><code>${escapeHtml(codeBuf.join('\n'))}</code></pre>`);
   return html.join('\n');
 }
 
@@ -272,6 +289,8 @@ function htmlPage(title: string, body: string): string {
   ul { padding-left: 22px; }
   li { margin: 4px 0; }
   code { background: #1E293B; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
+  pre { background: #0F172A; border: 1px solid #1E293B; border-radius: 6px; padding: 14px; overflow-x: auto; }
+  pre code { background: transparent; padding: 0; font-size: 13px; }
   hr { border: 0; border-top: 1px solid #1E293B; margin: 24px 0; }
   table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14px; }
   th, td { border: 1px solid #1E293B; padding: 8px 10px; text-align: left; }
