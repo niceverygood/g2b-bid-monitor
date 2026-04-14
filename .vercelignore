@@ -1,4 +1,4 @@
-backend/
+_legacy_backend/
 data/
 *.db
 *.db-wal

@@ -1,13 +1,23 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "cd frontend && npm install && npm run build",
+  "buildCommand": "npm install && cd frontend && npm install && npm run build",
   "outputDirectory": "frontend/dist",
-  "installCommand": "echo skip",
   "framework": null,
+  "functions": {
+    "api/bids/[id]/pipeline.ts": { "maxDuration": 300 },
+    "api/bids/[id]/proposals/index.ts": { "maxDuration": 300 },
+    "api/bids/[id]/proposals/[docType].ts": { "maxDuration": 120 },
+    "api/collect.ts": { "maxDuration": 300 },
+    "api/cron/collect.ts": { "maxDuration": 300 },
+    "api/cron/auto-pipeline.ts": { "maxDuration": 300 }
+  },
   "rewrites": [
-    {
-      "source": "/api/:path*",
-      "destination": "https://YOUR-BACKEND-URL.railway.app/api/:path*"
-    }
+    { "source": "/api/bids/:id/proposals/generate", "destination": "/api/bids/:id/proposals" },
+    { "source": "/api/bids/:id/proposals/generate/:docType", "destination": "/api/bids/:id/proposals/:docType" }
+  ],
+  "crons": [
+    { "path": "/api/cron/collect", "schedule": "0 */2 * * *" },
+    { "path": "/api/cron/auto-pipeline", "schedule": "30 */3 * * *" },
+    { "path": "/api/cron/deadline", "schedule": "0 23,8 * * *" }
   ]
 }
