@@ -106,4 +106,6 @@ export interface Filters {
   keyword: string;
   bookmarked: boolean;
   status: string;
+  withinDays?: number;
+  minScore?: number;
 }

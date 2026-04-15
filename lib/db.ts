@@ -123,6 +123,7 @@ export async function getBids(filters: {
   minScore?: number;
   bookmarked?: boolean;
   status?: string;
+  withinDays?: number;
 }): Promise<{ data: Bid[]; total: number }> {
   const sb = getSupabase();
   const page = filters.page || 1;
@@ -148,6 +149,11 @@ export async function getBids(filters: {
   if (filters.bookmarked) query = query.eq('bookmarked', true);
   if (filters.status === 'active') query = query.gt('bid_clse_dt', new Date().toISOString());
   else if (filters.status === 'closed') query = query.lte('bid_clse_dt', new Date().toISOString());
+  if (filters.withinDays !== undefined && filters.withinDays > 0) {
+    const now = new Date();
+    const horizon = new Date(Date.now() + filters.withinDays * 24 * 60 * 60 * 1000);
+    query = query.gt('bid_clse_dt', now.toISOString()).lte('bid_clse_dt', horizon.toISOString());
+  }
 
   query = query.order(sortCol, { ascending }).range(offset, offset + limit - 1);
 

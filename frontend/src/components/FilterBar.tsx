@@ -21,8 +21,29 @@ const SORT_OPTIONS = [
 ];
 
 export default function FilterBar({ filters, total, onUpdate }: FilterBarProps) {
+  const targetMode = filters.withinDays === 7 && (filters.minScore ?? 0) >= 60 && filters.status === 'active';
+  const toggleTarget = () => {
+    if (targetMode) {
+      onUpdate({ withinDays: undefined, minScore: undefined, status: 'all', sort: 'totalScore' });
+    } else {
+      onUpdate({ withinDays: 7, minScore: 60, status: 'active', sort: 'deadline', order: 'asc', recommendation: '' });
+    }
+  };
+
   return (
     <div className="bg-[#0F172A] border border-[#1E293B] rounded-xl p-4 space-y-3">
+      <button
+        onClick={toggleTarget}
+        className={`w-full px-4 py-2.5 rounded-lg text-sm font-semibold transition-all ${
+          targetMode
+            ? 'bg-gradient-to-r from-[#EF4444] to-[#F59E0B] text-white shadow-lg shadow-red-500/20'
+            : 'bg-[#1E293B] text-[#CBD5E1] hover:bg-[#334155] border border-[#334155]'
+        }`}
+        title="마감 7일 이내 × 60점 이상 × 마감임박순 정렬"
+      >
+        {targetMode ? '✓ 입찰 타겟 모드 (7일 이내 · 60점↑)' : '🎯 입찰 타겟만 보기 (마감 임박 + 적합)'}
+      </button>
+
       <div className="flex flex-wrap gap-2">
         {RECOMMENDATION_FILTERS.map(f => (
           <button

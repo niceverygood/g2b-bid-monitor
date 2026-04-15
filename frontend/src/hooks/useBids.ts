@@ -34,6 +34,8 @@ export function useBids() {
       if (f.keyword) params.set('keyword', f.keyword);
       if (f.bookmarked) params.set('bookmarked', 'true');
       if (f.status !== 'all') params.set('status', f.status);
+      if (f.withinDays !== undefined) params.set('withinDays', String(f.withinDays));
+      if (f.minScore !== undefined) params.set('minScore', String(f.minScore));
 
       const res = await fetch(`${API_BASE}/bids?${params}`);
       const json = await res.json();
@@ -80,7 +82,15 @@ export function useBids() {
   const updateFilters = useCallback((partial: Partial<Filters>) => {
     setFilters(prev => {
       const next = { ...prev, ...partial };
-      if (partial.recommendation !== undefined || partial.keyword !== undefined || partial.bookmarked !== undefined || partial.sort !== undefined || partial.status !== undefined) {
+      if (
+        partial.recommendation !== undefined ||
+        partial.keyword !== undefined ||
+        partial.bookmarked !== undefined ||
+        partial.sort !== undefined ||
+        partial.status !== undefined ||
+        partial.withinDays !== undefined ||
+        partial.minScore !== undefined
+      ) {
         next.page = 1;
       }
       return next;

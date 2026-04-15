@@ -16,6 +16,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       minScore: q.minScore ? parseInt(q.minScore as string) : undefined,
       bookmarked: q.bookmarked === 'true',
       status: (q.status as string) || 'all',
+      withinDays: q.withinDays ? parseInt(q.withinDays as string) : undefined,
     };
 
     const { data, total } = await getBids(filters);
