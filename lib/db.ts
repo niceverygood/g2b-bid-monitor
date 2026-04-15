@@ -169,6 +169,20 @@ export async function getBidById(id: number): Promise<Bid | undefined> {
   return (data as Bid) || undefined;
 }
 
+// Accept either the integer PK or the bid_ntce_no string (e.g. "R26BK01458752").
+// All-digit strings are treated as the integer id; anything else is looked up by bid_ntce_no.
+export async function resolveBid(key: string | number): Promise<Bid | undefined> {
+  const raw = String(key).trim();
+  if (/^\d+$/.test(raw)) return getBidById(parseInt(raw, 10));
+  const sb = getSupabase();
+  const { data, error } = await sb.from('bids').select('*').eq('bid_ntce_no', raw).maybeSingle();
+  if (error) {
+    console.error('resolveBid error:', error.message);
+    return undefined;
+  }
+  return (data as Bid) || undefined;
+}
+
 export async function toggleBookmark(id: number): Promise<boolean> {
   const sb = getSupabase();
   const { data: current } = await sb.from('bids').select('bookmarked').eq('id', id).maybeSingle();

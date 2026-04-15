@@ -1,14 +1,15 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getBidById, toggleBookmark } from '../../../lib/db';
+import { resolveBid, toggleBookmark } from '../../../lib/db';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  const id = parseInt(req.query.id as string);
-  if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+  const key = (req.query.id as string)?.trim();
+  if (!key) return res.status(400).json({ error: 'Invalid id' });
 
   try {
+    const bid = await resolveBid(key);
+    if (!bid) return res.status(404).json({ error: 'Not found' });
+
     if (req.method === 'GET') {
-      const bid = await getBidById(id);
-      if (!bid) return res.status(404).json({ error: 'Not found' });
       return res.json(bid);
     }
 
@@ -16,8 +17,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // POST /api/bids/:id?action=bookmark
       const action = req.query.action as string;
       if (action === 'bookmark') {
-        const bookmarked = await toggleBookmark(id);
-        return res.json({ id, bookmarked });
+        const bookmarked = await toggleBookmark(bid.id!);
+        return res.json({ id: bid.id, bookmarked });
       }
       return res.status(400).json({ error: 'Unknown action' });
     }

@@ -1,18 +1,19 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getBidById, getProposals, getProposal } from '../../../../lib/db';
+import { resolveBid, getProposals, getProposal } from '../../../../lib/db';
 import { generateAllProposals, DOC_TYPES, DocType } from '../../../../lib/proposal-generator';
 import { markdownToDocx, bundleZip, safeFilename } from '../../../../lib/doc-exporter';
 
 export const config = { maxDuration: 300 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  const id = parseInt(req.query.id as string);
+  const key = (req.query.id as string)?.trim();
   const format = (req.query.format as string) || 'json';
-  if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+  if (!key) return res.status(400).json({ error: 'Invalid id' });
 
   try {
-    const bid = await getBidById(id);
+    const bid = await resolveBid(key);
     if (!bid) return res.status(404).json({ error: 'Not found' });
+    const id = bid.id!;
 
     if (req.method === 'GET') {
       if (format === 'zip') {
