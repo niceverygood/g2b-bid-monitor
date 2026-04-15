@@ -4,6 +4,7 @@ import { runBidPipeline } from '../../../lib/pipeline';
 import { notifyPipelineResult } from '../../../lib/notifier';
 import { generateChecklist } from '../../../lib/checklist-generator';
 import { generatePriceAdvice } from '../../../lib/price-advisor';
+import { createJob, makeJobLogger, finishJob, failJob, listJobsForBid } from '../../../lib/jobs';
 
 // maxDuration only applies on Pro plans. Full pipeline is long-running.
 export const config = { maxDuration: 300 };
@@ -19,20 +20,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (req.method === 'GET') {
       const result = await getPipelineResult(bid.bid_ntce_no);
-      if (!result) return res.status(404).json({ error: '파이프라인 결과가 없습니다' });
+      const includeJobs = (req.query.include as string) === 'jobs';
+      const jobs = includeJobs ? await listJobsForBid(bid.bid_ntce_no, 10) : undefined;
+
+      if (!result) {
+        if (includeJobs) return res.json({ status: 'NONE', jobs });
+        return res.status(404).json({ error: '파이프라인 결과가 없습니다' });
+      }
       return res.json({
         ...result,
         checklist: result.checklist_json || null,
         price_advice: result.price_advice_json || null,
         proposal_status: result.proposal_status_json || null,
         errors: result.errors_json || [],
+        ...(includeJobs ? { jobs } : {}),
       });
     }
 
     if (req.method === 'POST') {
       const step = req.query.step as string;
 
-      // Partial steps (sync response)
+      // Partial steps still run sync — they're fast.
       if (step === 'checklist') {
         const checklist = await generateChecklist(id);
         return res.json(checklist);
@@ -42,20 +50,42 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.json(advice);
       }
 
-      // Full pipeline: run sync (Pro plan) and notify
-      const result = await runBidPipeline(id);
-      await notifyPipelineResult(result).catch(() => {});
-      return res.json({
+      // Full pipeline: run in background. Return 202 + job_id immediately,
+      // then keep the function alive while runBidPipeline completes. The
+      // client polls GET /api/jobs/:id for status + live logs.
+      const jobId = await createJob(id, bid.bid_ntce_no, 'pipeline', bid.bid_ntce_nm);
+      res.status(202).json({
+        job_id: jobId,
+        status: 'running',
         bid_ntce_no: bid.bid_ntce_no,
-        checklist: result.checklist,
-        price_advice: result.priceAdvice,
-        proposals: result.proposals,
-        errors: result.errors,
+        poll_url: `/api/jobs/${jobId}`,
       });
+
+      try {
+        const logger = makeJobLogger(jobId);
+        const result = await runBidPipeline(id, { onLog: logger });
+        const status = result.errors.length === 0 ? 'success' : 'partial';
+        await finishJob(
+          jobId,
+          status,
+          {
+            bid_ntce_no: bid.bid_ntce_no,
+            checklist: result.checklist,
+            price_advice: result.priceAdvice,
+            proposals: result.proposals,
+            errors: result.errors,
+          },
+          '🏁 파이프라인 완료'
+        );
+        await notifyPipelineResult(result).catch(() => {});
+      } catch (error: any) {
+        await failJob(jobId, error?.message || String(error));
+      }
+      return;
     }
 
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    if (!res.headersSent) res.status(500).json({ error: error.message });
   }
 }

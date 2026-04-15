@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { PipelineResult, ChecklistItem, PriceBreakdownItem } from '../types';
+import JobLogView from './JobLogView';
 
 const API_BASE = '/api';
 
@@ -9,27 +10,37 @@ interface PipelinePanelProps {
   onClose: () => void;
 }
 
-type Tab = 'overview' | 'checklist' | 'price' | 'proposals';
+type Tab = 'overview' | 'checklist' | 'price' | 'proposals' | 'logs';
 
 export default function PipelinePanel({ bidId, bidName, onClose }: PipelinePanelProps) {
   const [data, setData] = useState<PipelineResult | null>(null);
   const [loading, setLoading] = useState(true);
-  const [running, setRunning] = useState(false);
+  const [jobId, setJobId] = useState<number | null>(null);
+  const [starting, setStarting] = useState(false);
   const [tab, setTab] = useState<Tab>('overview');
   const [checklistState, setChecklistState] = useState<ChecklistItem[]>([]);
 
-  useEffect(() => {
-    fetchPipeline();
-  }, [bidId]);
-
-  async function fetchPipeline() {
+  const fetchPipeline = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_BASE}/bids/${bidId}/pipeline`);
+      const res = await fetch(`${API_BASE}/bids/${bidId}/pipeline?include=jobs`);
       if (res.ok) {
         const json = await res.json();
-        setData(json);
-        setChecklistState(json.checklist?.items || []);
+        if (json.status === 'NONE') {
+          setData(null);
+        } else {
+          setData(json);
+          setChecklistState(json.checklist?.items || []);
+        }
+        // Resume polling if a pipeline job is still running
+        const running = (json.jobs || []).find(
+          (j: { kind: string; status: string; id: number }) =>
+            j.kind === 'pipeline' && j.status === 'running'
+        );
+        if (running) {
+          setJobId(running.id);
+          setTab('logs');
+        }
       } else {
         setData(null);
       }
@@ -38,31 +49,34 @@ export default function PipelinePanel({ bidId, bidName, onClose }: PipelinePanel
     } finally {
       setLoading(false);
     }
-  }
+  }, [bidId]);
+
+  useEffect(() => {
+    fetchPipeline();
+  }, [fetchPipeline]);
 
   async function startPipeline() {
     try {
-      setRunning(true);
-      await fetch(`${API_BASE}/bids/${bidId}/pipeline`, { method: 'POST' });
-      // Poll for results
-      const poll = setInterval(async () => {
-        const res = await fetch(`${API_BASE}/bids/${bidId}/pipeline`);
-        if (res.ok) {
-          const json = await res.json();
-          if (json.status === 'COMPLETE' || json.status === 'PARTIAL') {
-            setData(json);
-            setChecklistState(json.checklist?.items || []);
-            setRunning(false);
-            clearInterval(poll);
-          }
+      setStarting(true);
+      const res = await fetch(`${API_BASE}/bids/${bidId}/pipeline`, { method: 'POST' });
+      if (res.status === 202 || res.ok) {
+        const json = await res.json();
+        if (typeof json.job_id === 'number') {
+          setJobId(json.job_id);
+          setTab('logs');
         }
-      }, 5000);
-      // Timeout after 5 minutes
-      setTimeout(() => { clearInterval(poll); setRunning(false); }, 300000);
+      }
     } catch {
-      setRunning(false);
+      // ignore
+    } finally {
+      setStarting(false);
     }
   }
+
+  const onJobDone = useCallback(async () => {
+    // Re-fetch the persisted pipeline result so the tabs populate.
+    await fetchPipeline();
+  }, [fetchPipeline]);
 
   function toggleCheckItem(index: number) {
     setChecklistState(prev =>
@@ -101,6 +115,7 @@ export default function PipelinePanel({ bidId, bidName, onClose }: PipelinePanel
             ['checklist', '📋 체크리스트'],
             ['price', '💰 투찰가격'],
             ['proposals', '📝 제안서'],
+            ['logs', jobId ? '📜 로그 •' : '📜 로그'],
           ] as [Tab, string][]).map(([key, label]) => (
             <button
               key={key}
@@ -122,28 +137,32 @@ export default function PipelinePanel({ bidId, bidName, onClose }: PipelinePanel
             <div className="flex items-center justify-center h-48">
               <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" />
             </div>
-          ) : !data ? (
+          ) : !data && !jobId ? (
             <div className="text-center py-16">
               <div className="text-6xl mb-4">🚀</div>
               <h3 className="text-xl font-bold text-gray-700 mb-2">입찰 준비를 시작하세요</h3>
               <p className="text-gray-500 mb-6">
                 체크리스트 생성, 투찰가격 추천, 제안서 6종 자동 생성을<br />
-                한 번에 실행합니다. (약 3~5분 소요)
+                백그라운드로 실행합니다. 로그 탭에서 진행 상황을 확인할 수 있어요.
               </p>
               <button
                 onClick={startPipeline}
-                disabled={running}
+                disabled={starting}
                 className="px-8 py-3 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                {running ? (
+                {starting ? (
                   <span className="flex items-center gap-2">
                     <span className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
-                    파이프라인 실행 중...
+                    작업 시작 중...
                   </span>
-                ) : '🚀 입찰 준비 시작'}
+                ) : '🚀 입찰 준비 시작 (백그라운드)'}
               </button>
             </div>
-          ) : (
+          ) : !data && jobId ? (
+            <div className="max-w-2xl mx-auto">
+              <JobLogView jobId={jobId} onDone={onJobDone} title="파이프라인 실행 로그" />
+            </div>
+          ) : data && (
             <>
               {/* Overview Tab */}
               {tab === 'overview' && (
@@ -212,13 +231,24 @@ export default function PipelinePanel({ bidId, bidName, onClose }: PipelinePanel
                   <div className="text-center">
                     <button
                       onClick={startPipeline}
-                      disabled={running}
+                      disabled={starting || !!jobId}
                       className="px-6 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200 disabled:opacity-50"
                     >
-                      {running ? '실행 중...' : '🔄 파이프라인 재실행'}
+                      {jobId ? '백그라운드 실행 중... (로그 탭 확인)' : starting ? '시작 중...' : '🔄 파이프라인 재실행'}
                     </button>
                   </div>
                 </div>
+              )}
+
+              {/* Logs Tab */}
+              {tab === 'logs' && (
+                jobId ? (
+                  <JobLogView jobId={jobId} onDone={onJobDone} title="파이프라인 실행 로그" />
+                ) : (
+                  <div className="text-center py-10 text-gray-400 text-sm">
+                    실행 중인 작업이 없습니다. "파이프라인 재실행"을 눌러 시작하세요.
+                  </div>
+                )
               )}
 
               {/* Checklist Tab */}

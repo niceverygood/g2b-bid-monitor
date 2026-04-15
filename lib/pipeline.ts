@@ -1,7 +1,7 @@
 import { getBidById, getBidsForPipeline, savePipelineResult, Bid } from './db';
 import { generateChecklist, BidChecklist } from './checklist-generator';
 import { generatePriceAdvice, PriceAdvice } from './price-advisor';
-import { generateAllProposals, GenerationResult } from './proposal-generator';
+import { generateAllProposals, GenerationResult, DOC_TYPES } from './proposal-generator';
 import { SCORE_THRESHOLD } from './config';
 
 export interface PipelineResult {
@@ -19,15 +19,29 @@ export interface PipelineSummary {
   results: PipelineResult[];
 }
 
+export interface PipelineOptions {
+  onLog?: (line: string) => void | Promise<void>;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms));
 }
 
-export async function runBidPipeline(bidId: number): Promise<PipelineResult> {
+export async function runBidPipeline(
+  bidId: number,
+  options: PipelineOptions = {}
+): Promise<PipelineResult> {
+  const log = async (line: string) => {
+    console.log(line);
+    if (options.onLog) {
+      try { await options.onLog(line); } catch {}
+    }
+  };
+
   const bid = await getBidById(bidId);
   if (!bid) throw new Error('공고를 찾을 수 없습니다');
 
-  console.log(`\n🚀 입찰 파이프라인 시작: ${bid.bid_ntce_nm.substring(0, 40)}`);
+  await log(`🚀 입찰 파이프라인 시작: ${bid.bid_ntce_nm.substring(0, 40)}`);
 
   const result: PipelineResult = {
     bid,
@@ -38,35 +52,35 @@ export async function runBidPipeline(bidId: number): Promise<PipelineResult> {
   };
 
   try {
-    console.log('  📋 체크리스트 생성 중...');
+    await log('📋 체크리스트 생성 중...');
     result.checklist = await generateChecklist(bidId);
-    console.log(`  ✅ 체크리스트: ${result.checklist.items.length}개 항목`);
+    await log(`✅ 체크리스트: ${result.checklist.items.length}개 항목 (준비 예상 ${result.checklist.estimated_prep_days}일)`);
   } catch (error: any) {
     result.errors.push(`체크리스트: ${error.message}`);
-    console.error(`  ❌ 체크리스트 실패: ${error.message}`);
+    await log(`❌ 체크리스트 실패: ${error.message}`);
   }
 
   await sleep(1000);
 
   try {
-    console.log('  💰 투찰가격 추천 중...');
+    await log('💰 투찰가격 추천 중...');
     result.priceAdvice = await generatePriceAdvice(bidId);
-    console.log(`  ✅ 투찰가 추천: ${result.priceAdvice.bid_rate}%`);
+    await log(`✅ 투찰가 추천: ${result.priceAdvice.recommended_bid_price.toLocaleString()}원 (${result.priceAdvice.bid_rate}%)`);
   } catch (error: any) {
     result.errors.push(`투찰가격: ${error.message}`);
-    console.error(`  ❌ 투찰가격 실패: ${error.message}`);
+    await log(`❌ 투찰가격 실패: ${error.message}`);
   }
 
   await sleep(1000);
 
   try {
-    console.log('  📝 제안서 6종 생성 중...');
-    result.proposals = await generateAllProposals(bidId);
+    await log(`📝 제안서 ${Object.keys(DOC_TYPES).length}종 생성 중...`);
+    result.proposals = await generateAllProposals(bidId, { onLog: options.onLog });
     const success = result.proposals.filter(p => p.success).length;
-    console.log(`  ✅ 제안서: ${success}/${result.proposals.length}건 완료`);
+    await log(`✅ 제안서: ${success}/${result.proposals.length}건 완료`);
   } catch (error: any) {
     result.errors.push(`제안서: ${error.message}`);
-    console.error(`  ❌ 제안서 실패: ${error.message}`);
+    await log(`❌ 제안서 실패: ${error.message}`);
   }
 
   // Persist pipeline result
@@ -79,7 +93,7 @@ export async function runBidPipeline(bidId: number): Promise<PipelineResult> {
     status: result.errors.length === 0 ? 'SUCCESS' : 'PARTIAL',
   });
 
-  console.log(`🏁 파이프라인 완료: 에러 ${result.errors.length}건`);
+  await log(`🏁 파이프라인 완료: 에러 ${result.errors.length}건`);
   return result;
 }
 

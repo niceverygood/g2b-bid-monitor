@@ -196,22 +196,39 @@ export interface GenerationResult {
   error?: string;
 }
 
-export async function generateAllProposals(bidId: number): Promise<GenerationResult[]> {
+export interface GenerateAllOptions {
+  onLog?: (line: string) => void | Promise<void>;
+}
+
+export async function generateAllProposals(
+  bidId: number,
+  options: GenerateAllOptions = {}
+): Promise<GenerationResult[]> {
+  const log = async (line: string) => {
+    console.log(line);
+    if (options.onLog) {
+      try { await options.onLog(line); } catch {}
+    }
+  };
+
   const results: GenerationResult[] = [];
   const bid = await getBidById(bidId);
   if (!bid) throw new Error('공고를 찾을 수 없습니다');
 
-  for (const [docType, label] of Object.entries(DOC_TYPES)) {
+  const entries = Object.entries(DOC_TYPES);
+  let idx = 0;
+  for (const [docType, label] of entries) {
+    idx++;
     try {
-      console.log(`  📝 ${label} 생성 중...`);
+      await log(`  📝 [${idx}/${entries.length}] ${label} 생성 중...`);
       const content = await generateProposal(bidId, docType as DocType);
       await saveProposal(bid.bid_ntce_no, docType, content);
       results.push({ docType: docType as DocType, label, success: true });
-      console.log(`  ✅ ${label} 완료`);
+      await log(`  ✅ [${idx}/${entries.length}] ${label} 완료 (${content.length.toLocaleString()}자)`);
       await sleep(1000);
     } catch (error: any) {
       results.push({ docType: docType as DocType, label, success: false, error: error.message });
-      console.error(`  ❌ ${label} 실패: ${error.message}`);
+      await log(`  ❌ [${idx}/${entries.length}] ${label} 실패: ${error.message}`);
     }
   }
 

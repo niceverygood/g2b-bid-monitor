@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { DOC_TYPE_LABELS } from '../types';
+import JobLogView from './JobLogView';
 
 const API_BASE = '/api';
 const DOC_TYPES = Object.keys(DOC_TYPE_LABELS);
@@ -13,7 +14,7 @@ export default function ProposalPanel({ bidId, onClose }: ProposalPanelProps) {
   const [activeTab, setActiveTab] = useState(DOC_TYPES[0]);
   const [generated, setGenerated] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState<Record<string, boolean>>({});
-  const [generatingAll, setGeneratingAll] = useState(false);
+  const [jobId, setJobId] = useState<number | null>(null);
   const [existingDocs, setExistingDocs] = useState<string[]>([]);
 
   const fetchExisting = useCallback(async () => {
@@ -61,24 +62,28 @@ export default function ProposalPanel({ bidId, onClose }: ProposalPanelProps) {
   };
 
   const generateAll = async () => {
-    setGeneratingAll(true);
     try {
-      await fetch(`${API_BASE}/bids/${bidId}/proposals/generate`, { method: 'POST' });
-      // Poll for completion
-      for (let i = 0; i < 60; i++) {
-        await new Promise(r => setTimeout(r, 5000));
-        const res = await fetch(`${API_BASE}/bids/${bidId}/proposals`);
+      const res = await fetch(`${API_BASE}/bids/${bidId}/proposals/generate`, { method: 'POST' });
+      if (res.status === 202 || res.ok) {
         const json = await res.json();
-        const docs = (json.proposals || []).map((p: { doc_type: string }) => p.doc_type);
-        setExistingDocs(docs);
-        if (docs.length >= DOC_TYPES.length) break;
+        if (typeof json.job_id === 'number') {
+          setJobId(json.job_id);
+        }
       }
-      // Fetch the active tab
-      await fetchDoc(activeTab);
-    } catch {} finally {
-      setGeneratingAll(false);
-    }
+    } catch {}
   };
+
+  const onJobDone = useCallback(async () => {
+    // Refresh the existing docs list so the tabs show the new proposals.
+    await fetchExisting();
+    // Reload active tab content.
+    setGenerated(prev => {
+      const next = { ...prev };
+      delete next[activeTab];
+      return next;
+    });
+    await fetchDoc(activeTab);
+  }, [fetchExisting, fetchDoc, activeTab]);
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -115,13 +120,13 @@ export default function ProposalPanel({ bidId, onClose }: ProposalPanelProps) {
           <div className="flex gap-2">
             <button
               onClick={generateAll}
-              disabled={generatingAll}
+              disabled={!!jobId}
               className="px-3 py-1.5 bg-[#3B82F6] hover:bg-[#2563EB] disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors flex items-center gap-1.5"
             >
-              {generatingAll ? (
+              {jobId ? (
                 <span className="inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
               ) : '🚀'}{' '}
-              전체 생성
+              {jobId ? '생성 중 (로그 확인)' : '전체 생성 (백그라운드)'}
             </button>
             <button
               onClick={downloadZip}
@@ -160,7 +165,22 @@ export default function ProposalPanel({ bidId, onClose }: ProposalPanelProps) {
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-5">
-          {isLoading || (generatingAll && !content) ? (
+          {jobId && (
+            <div className="mb-5">
+              <JobLogView
+                jobId={jobId}
+                title="📝 제안서 6종 생성 로그"
+                onDone={async (job) => {
+                  await onJobDone();
+                  // Clear jobId after a short delay so user sees final status
+                  setTimeout(() => {
+                    if (job.status !== 'running') setJobId(null);
+                  }, 1500);
+                }}
+              />
+            </div>
+          )}
+          {isLoading ? (
             <div className="flex flex-col items-center justify-center py-20 text-[#94A3B8]">
               <span className="inline-block w-8 h-8 border-3 border-[#334155] border-t-[#3B82F6] rounded-full animate-spin mb-4" />
               <p className="text-sm">{DOC_TYPE_LABELS[activeTab]} 생성 중...</p>

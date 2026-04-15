@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { resolveBid, getProposals, getProposal } from '../../../../lib/db';
 import { generateAllProposals, DOC_TYPES, DocType } from '../../../../lib/proposal-generator';
 import { markdownToDocx, bundleZip, safeFilename } from '../../../../lib/doc-exporter';
+import { createJob, makeJobLogger, finishJob, failJob } from '../../../../lib/jobs';
 
 export const config = { maxDuration: 300 };
 
@@ -51,12 +52,34 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (req.method === 'POST') {
-      const results = await generateAllProposals(id);
-      return res.json({ results });
+      // Background job: return 202 + job_id, run generation while the handler
+      // promise keeps the function alive.
+      const jobId = await createJob(id, bid.bid_ntce_no, 'proposals', bid.bid_ntce_nm);
+      res.status(202).json({
+        job_id: jobId,
+        status: 'running',
+        bid_ntce_no: bid.bid_ntce_no,
+        poll_url: `/api/jobs/${jobId}`,
+      });
+
+      try {
+        const logger = makeJobLogger(jobId);
+        const results = await generateAllProposals(id, { onLog: logger });
+        const allOk = results.every(r => r.success);
+        await finishJob(
+          jobId,
+          allOk ? 'success' : 'partial',
+          { results },
+          allOk ? '🏁 제안서 전체 생성 완료' : '🏁 제안서 생성 완료 (일부 실패)'
+        );
+      } catch (error: any) {
+        await failJob(jobId, error?.message || String(error));
+      }
+      return;
     }
 
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    if (!res.headersSent) res.status(500).json({ error: error.message });
   }
 }

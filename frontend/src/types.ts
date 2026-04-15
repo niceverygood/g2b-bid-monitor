@@ -83,6 +83,20 @@ export interface PipelineResult {
   created_at?: string;
 }
 
+export interface Job {
+  id: number;
+  bid_id: number;
+  bid_ntce_no: string;
+  kind: 'pipeline' | 'proposals' | 'checklist' | 'price-advice';
+  status: 'running' | 'success' | 'partial' | 'failed';
+  logs: string;
+  result_json?: unknown;
+  error?: string | null;
+  created_at: string;
+  started_at: string;
+  finished_at?: string | null;
+}
+
 export interface Filters {
   page: number;
   limit: number;
