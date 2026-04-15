@@ -94,6 +94,14 @@ export default function ProposalPanel({ bidId, onClose }: ProposalPanelProps) {
     URL.revokeObjectURL(url);
   };
 
+  const downloadDocx = (docType: string) => {
+    window.location.href = `${API_BASE}/bids/${bidId}/proposals/${docType}?format=docx`;
+  };
+
+  const downloadZip = () => {
+    window.location.href = `${API_BASE}/bids/${bidId}/proposals?format=zip`;
+  };
+
   const content = generated[activeTab];
   const isLoading = loading[activeTab];
   const hasDoc = existingDocs.includes(activeTab);
@@ -114,6 +122,14 @@ export default function ProposalPanel({ bidId, onClose }: ProposalPanelProps) {
                 <span className="inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
               ) : '🚀'}{' '}
               전체 생성
+            </button>
+            <button
+              onClick={downloadZip}
+              disabled={existingDocs.length === 0}
+              title={existingDocs.length === 0 ? '생성된 제안서가 없습니다' : '6종 제안서를 .docx ZIP으로 다운로드'}
+              className="px-3 py-1.5 bg-[#10B981] hover:bg-[#059669] disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-medium rounded-lg transition-colors flex items-center gap-1.5"
+            >
+              📦 ZIP 다운로드
             </button>
             <button
               onClick={onClose}
@@ -165,6 +181,12 @@ export default function ProposalPanel({ bidId, onClose }: ProposalPanelProps) {
                   className="px-3 py-1.5 bg-[#1E293B] text-[#CBD5E1] hover:bg-[#334155] rounded-lg text-xs transition-colors"
                 >
                   💾 .md 다운로드
+                </button>
+                <button
+                  onClick={() => downloadDocx(activeTab)}
+                  className="px-3 py-1.5 bg-[#1E293B] text-[#60A5FA] hover:bg-[#334155] rounded-lg text-xs transition-colors"
+                >
+                  📄 .docx 다운로드
                 </button>
                 <button
                   onClick={() => generateOne(activeTab)}
