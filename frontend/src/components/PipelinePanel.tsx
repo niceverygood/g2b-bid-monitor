@@ -500,6 +500,10 @@ function SubmitKit({
   const cntrctMthd = bid?.cntrct_mthd_nm || '';
   const presmptPrce = bid?.presmpt_prce || 0;
   const dtlUrl = bid?.bid_ntce_dtl_url || '';
+  // 공인인증서 로그인 후 해당 공고 투찰 화면으로 직접 진입하는 URL.
+  const submitUrl = bidNtceNo
+    ? `https://www.g2b.go.kr:8101/ep/tbid/tbidFwd.do?bidno=${encodeURIComponent(bidNtceNo)}&bidseq=000&releaseYn=Y&taskClCd=5`
+    : '';
   const recommendedPrice = data?.price_advice?.recommended_bid_price || 0;
   const bidRate = data?.price_advice?.bid_rate || 0;
 
@@ -679,20 +683,35 @@ function SubmitKit({
         </div>
       )}
 
-      {/* 나라장터 이동 */}
-      {dtlUrl && (
-        <a
-          href={dtlUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="block w-full text-center px-6 py-4 bg-gradient-to-r from-[#F59E0B] to-[#EF4444] hover:from-[#D97706] hover:to-[#DC2626] text-white font-bold rounded-xl transition-all shadow-lg"
-        >
-          🚀 나라장터 입찰서 제출 페이지로 이동
-          <div className="text-xs font-normal text-white/80 mt-1">
-            공인인증서 로그인 후 본인이 직접 제출하세요
-          </div>
-        </a>
-      )}
+      {/* 나라장터 이동 — 투찰 + 공고 상세 두 개 분리 */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {submitUrl && (
+          <a
+            href={submitUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-center px-6 py-4 bg-gradient-to-r from-[#F59E0B] to-[#EF4444] hover:from-[#D97706] hover:to-[#DC2626] text-white font-bold rounded-xl transition-all shadow-lg"
+          >
+            📮 투찰 페이지로 이동
+            <div className="text-xs font-normal text-white/80 mt-1">
+              공인인증서 로그인 → 본인이 직접 제출
+            </div>
+          </a>
+        )}
+        {dtlUrl && (
+          <a
+            href={dtlUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-center px-6 py-4 bg-gradient-to-r from-slate-600 to-slate-700 hover:from-slate-700 hover:to-slate-800 text-white font-bold rounded-xl transition-all shadow-lg"
+          >
+            🔗 공고 상세 페이지
+            <div className="text-xs font-normal text-white/80 mt-1">
+              규격서·첨부파일 확인 (로그인 불필요)
+            </div>
+          </a>
+        )}
+      </div>
 
       {/* 파이프라인 미실행 시 안내 */}
       {!data?.price_advice && !data?.checklist && (

@@ -53,6 +53,16 @@ function formatDate(dt: string): string {
   return dt;
 }
 
+/**
+ * 나라장터 투찰(입찰서 제출) 페이지 URL.
+ * 공고 상세(bidInfoDtl.do, 8081/비인증)와 달리 tbidFwd.do는 8101(인증 필요)로 가며
+ * 공인인증서 로그인 후 해당 공고의 투찰 페이지로 직접 진입한다.
+ * bid_ntce_ord는 대부분 000이고 우리 스키마에 안 담겨 있어 기본값 000.
+ */
+function buildBidSubmitUrl(bidNtceNo: string, bidNtceOrd: string = '000'): string {
+  return `https://www.g2b.go.kr:8101/ep/tbid/tbidFwd.do?bidno=${encodeURIComponent(bidNtceNo)}&bidseq=${encodeURIComponent(bidNtceOrd)}&releaseYn=Y&taskClCd=5`;
+}
+
 export default function BidCard({ bid, onToggleBookmark }: BidCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [showProposal, setShowProposal] = useState(false);
@@ -214,15 +224,15 @@ export default function BidCard({ bid, onToggleBookmark }: BidCardProps) {
                   >
                     📄 제안서 생성
                   </button>
-                  {bid.bid_ntce_dtl_url && (
+                  {bid.bid_ntce_no && (
                     <a
-                      href={bid.bid_ntce_dtl_url}
+                      href={buildBidSubmitUrl(bid.bid_ntce_no)}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="px-3 py-1.5 bg-gradient-to-r from-[#F59E0B] to-[#EF4444] hover:from-[#D97706] hover:to-[#DC2626] text-white text-xs font-medium rounded-lg transition-all"
-                      title="나라장터 입찰서 제출 페이지로 이동 (공인인증서 로그인 필요)"
+                      title="나라장터 투찰 페이지 (공인인증서 로그인 필요)"
                     >
-                      📮 지원하기
+                      📮 투찰하기
                     </a>
                   )}
                 </div>
@@ -260,9 +270,20 @@ export default function BidCard({ bid, onToggleBookmark }: BidCardProps) {
               target="_blank"
               rel="noopener noreferrer"
               className="w-9 h-9 rounded-lg flex items-center justify-center bg-[#1E293B] text-[#94A3B8] hover:bg-[#334155] transition-colors"
-              title="나라장터 링크"
+              title="공고 상세 페이지"
             >
               🔗
+            </a>
+          )}
+          {bid.bid_ntce_no && (
+            <a
+              href={buildBidSubmitUrl(bid.bid_ntce_no)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-9 h-9 rounded-lg flex items-center justify-center bg-gradient-to-br from-[#F59E0B] to-[#EF4444] text-white hover:opacity-90 transition-opacity"
+              title="투찰 페이지 (공인인증서 로그인 필요)"
+            >
+              📮
             </a>
           )}
         </div>
