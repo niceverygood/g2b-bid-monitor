@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { ENV } from './config';
 import { getBidById, saveProposal, Bid } from './db';
+import { buildAttachmentContext } from './attachments/context';
 
 export const DOC_TYPES = {
   technical: '기술제안서',
@@ -37,6 +38,9 @@ const COMPANY_PROFILE = `## 주식회사 바틀 (Bottle Inc.)
 8. 2026 데이터바우처 공급기업 선정
 9. CINOS INSITE ITIM 통합모니터링 제안 (1.7억원)
 10. ARGUS SKY 공항 위협 인텔리전스 플랫폼`;
+
+// 제안서용 첨부 컨텍스트 예산 — 6만자 (Claude Sonnet 4 ≈ 20K token)
+const PROPOSAL_ATT_BUDGET = 60_000;
 
 function buildBidContext(bid: Bid): string {
   const price = bid.presmpt_prce ? `${bid.presmpt_prce.toLocaleString()}원` : '미정';
@@ -172,7 +176,8 @@ async function generateProposalForBid(
   client: OpenAI = getOpenRouterClient()
 ): Promise<string> {
   const systemPrompt = DOC_PROMPTS[docType];
-  const userPrompt = `${COMPANY_PROFILE}\n\n${buildBidContext(bid)}\n\n위 정보를 바탕으로 ${DOC_TYPES[docType]}를 작성해주세요. 마크다운 형식으로, 제목은 "# ${DOC_TYPES[docType]}"로 시작하세요.`;
+  const attachmentCtx = buildAttachmentContext(bid, PROPOSAL_ATT_BUDGET);
+  const userPrompt = `${COMPANY_PROFILE}\n\n${buildBidContext(bid)}${attachmentCtx}\n\n위 정보(특히 첨부된 공고 원문이 있다면 그 내용을 최우선 근거로 삼아)를 바탕으로 ${DOC_TYPES[docType]}를 작성해주세요. 마크다운 형식으로, 제목은 "# ${DOC_TYPES[docType]}"로 시작하세요.`;
 
   const response = await client.chat.completions.create({
     model: 'anthropic/claude-sonnet-4',

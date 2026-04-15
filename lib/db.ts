@@ -30,6 +30,14 @@ export interface Bid {
   notified: boolean;
   collected_at?: string | null;
   analyzed_at?: string | null;
+  // 첨부파일 관련 (migration 003)
+  unty_atch_file_no?: string | null;
+  attachments?: any;
+  attachment_text?: any;
+  attachments_status?: string | null;
+  attachments_error?: string | null;
+  attachments_fetched_at?: string | null;
+  attachments_parsed_at?: string | null;
 }
 
 // ========== Bids ==========
@@ -63,6 +71,7 @@ export async function upsertBid(bid: Partial<Bid>): Promise<boolean> {
     ntce_kind_nm: bid.ntce_kind_nm || null,
     bid_mthd_nm: bid.bid_mthd_nm || null,
     srvc_div_nm: bid.srvc_div_nm || null,
+    attachments: bid.attachments || null,
   });
 
   if (error) {
@@ -391,6 +400,57 @@ export async function getBidsForPipeline(minScore: number): Promise<Bid[]> {
     .order('total_score', { ascending: false });
 
   return ((data || []) as Bid[]).filter(b => !doneSet.has(b.bid_ntce_no));
+}
+
+// ========== Attachments ==========
+
+/**
+ * 첨부파일 다운로드가 필요한 공고를 선별한다.
+ *
+ * 조건:
+ *   - total_score >= minScore  (메타 기반 단일패스 채점 필터)
+ *   - attachments_status IN (NULL, 'PENDING')
+ *   - attachments JSONB 에 다운로드할 엔트리가 있음
+ *   - bid_clse_dt 가 미래  (마감된 공고는 제외)
+ */
+export async function getBidsForAttachmentFetch(
+  minScore: number,
+  limit: number = 20
+): Promise<Bid[]> {
+  const sb = getSupabase();
+  const { data, error } = await sb
+    .from('bids')
+    .select('*')
+    .gte('total_score', minScore)
+    .or('attachments_status.is.null,attachments_status.eq.PENDING')
+    .gt('bid_clse_dt', new Date().toISOString())
+    .not('attachments', 'is', null)
+    .order('total_score', { ascending: false })
+    .limit(limit);
+  if (error) {
+    console.error('getBidsForAttachmentFetch error:', error.message);
+    return [];
+  }
+  return (data || []) as Bid[];
+}
+
+export async function updateAttachments(
+  bidNtceNo: string,
+  fields: {
+    attachments?: any;
+    attachment_text?: any;
+    attachments_status?: string;
+    attachments_error?: string | null;
+    attachments_fetched_at?: string;
+    attachments_parsed_at?: string;
+  }
+): Promise<void> {
+  const sb = getSupabase();
+  const { error } = await sb
+    .from('bids')
+    .update(fields)
+    .eq('bid_ntce_no', bidNtceNo);
+  if (error) console.error('updateAttachments error:', error.message);
 }
 
 export async function getDeadlineAlertBids(withinDays: number): Promise<Bid[]> {

@@ -25,6 +25,8 @@ export const SCORE_THRESHOLD = {
   STRONG_FIT: 80,
   GOOD_FIT: 60,
   MODERATE_FIT: 40,
+  // 첨부파일 다운로드 + 파싱 트리거 기준 (메타 기반 단일패스 채점)
+  ATTACHMENT_FETCH: 70,
 };
 
 export const G2B_API = {

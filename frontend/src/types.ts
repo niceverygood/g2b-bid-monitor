@@ -17,6 +17,48 @@ export interface Bid {
   risks_json: string;
   suggested_strategy: string;
   bookmarked: number;
+  attachments?: AttachmentEntry[] | null;
+  attachment_text?: AttachmentTextEntry[] | null;
+  attachments_status?: string | null;
+  attachments_error?: string | null;
+  attachments_fetched_at?: string | null;
+  attachments_parsed_at?: string | null;
+}
+
+export interface AttachmentEntry {
+  sourceIdx: number;
+  fileName: string;
+  sourceUrl: string;
+  status:
+    | 'PENDING'
+    | 'DOWNLOADED'
+    | 'PARSED'
+    | 'FAILED'
+    | 'NEEDS_WORKER';
+  storagePath?: string;
+  mime?: string;
+  fileSize?: number;
+  error?: string;
+  downloadedAt?: string;
+  parsedAt?: string;
+}
+
+export interface AttachmentTextEntry {
+  sourceIdx?: number;
+  fileName: string;
+  parser: string;
+  charCount: number;
+  warnings?: string[];
+}
+
+export interface AttachmentsSummary {
+  bid_ntce_no: string;
+  attachments: AttachmentEntry[];
+  attachment_text: AttachmentTextEntry[];
+  status: string | null;
+  error: string | null;
+  fetched_at: string | null;
+  parsed_at: string | null;
 }
 
 export interface Stats {

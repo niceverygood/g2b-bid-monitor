@@ -46,7 +46,60 @@ function isExcluded(name: string): boolean {
   return EXCLUDE_KEYWORDS.some(kw => name.includes(kw));
 }
 
-function mapApiBidToDb(item: any): Partial<Bid> {
+/**
+ * OpenAPI 응답의 ntceSpecFileNm1~10 / ntceSpecDocUrl1~10 에서
+ * 규격서/공고문 직링크들을 추출한다. 추가로 stdNtceDocUrl (표준 공고문)이
+ * 있으면 sourceIdx=0 으로 포함한다.
+ *
+ * 이 URL들은 사전 서명된 g2b 파일 서버 링크이므로 세션/AES 암호화 없이
+ * 바로 다운로드 가능 — Playwright 없이 순수 HTTP fetch 만으로 처리 가능하다.
+ *
+ * 결과는 attachments JSONB (AttachmentEntry[]) 형태로 저장.
+ */
+function extractAttachmentUrls(item: any): AttachmentEntry[] {
+  const out: AttachmentEntry[] = [];
+
+  // 표준 공고문 (있으면 idx=0 으로)
+  const stdUrl = item.stdNtceDocUrl;
+  if (stdUrl && String(stdUrl).trim()) {
+    out.push({
+      sourceIdx: 0,
+      fileName: '표준공고문',
+      sourceUrl: String(stdUrl).trim(),
+      status: 'PENDING',
+    });
+  }
+
+  for (let i = 1; i <= 10; i++) {
+    const name = item[`ntceSpecFileNm${i}`];
+    const url = item[`ntceSpecDocUrl${i}`];
+    if (url && String(url).trim()) {
+      out.push({
+        sourceIdx: i,
+        fileName: name ? String(name).trim() : `file_${i}`,
+        sourceUrl: String(url).trim(),
+        status: 'PENDING',
+      });
+    }
+  }
+  return out;
+}
+
+export interface AttachmentEntry {
+  sourceIdx: number;
+  fileName: string;
+  sourceUrl: string;
+  status: 'PENDING' | 'DOWNLOADED' | 'PARSED' | 'FAILED' | 'NEEDS_WORKER';
+  storagePath?: string;
+  mime?: string;
+  fileSize?: number;
+  error?: string;
+  downloadedAt?: string;
+  parsedAt?: string;
+}
+
+function mapApiBidToDb(item: any): Partial<Bid> & { attachments?: AttachmentEntry[] } {
+  const attachments = extractAttachmentUrls(item);
   return {
     bid_ntce_no: item.bidNtceNo || '',
     bid_ntce_ord: item.bidNtceOrd || '',
@@ -65,6 +118,7 @@ function mapApiBidToDb(item: any): Partial<Bid> {
     ntce_kind_nm: item.ntceKindNm || '',
     bid_mthd_nm: item.bidMethdNm || '',
     srvc_div_nm: item.srvceDivNm || '',
+    attachments: attachments.length ? attachments : undefined,
   };
 }
 

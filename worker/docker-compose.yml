@@ -1,0 +1,23 @@
+services:
+  worker:
+    build: .
+    image: g2b-attachment-worker:latest
+    container_name: g2b-worker
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      MIN_SCORE: ${MIN_SCORE:-70}
+      POLL_INTERVAL_MS: ${POLL_INTERVAL_MS:-300000}
+    # logging: capped rotating json so restarts don't fill the disk
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    healthcheck:
+      # hwp5txt --version returns 0 and confirms python venv is intact
+      test: ["CMD-SHELL", "$HWP5TXT_BIN --version >/dev/null 2>&1 || exit 1"]
+      interval: 1m
+      timeout: 10s
+      retries: 3
+      start_period: 30s

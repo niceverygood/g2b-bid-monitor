@@ -2,6 +2,7 @@ import { getBidById, getBidsForPipeline, savePipelineResult, Bid } from './db';
 import { generateChecklist, BidChecklist } from './checklist-generator';
 import { generatePriceAdvice, PriceAdvice } from './price-advisor';
 import { generateAllProposals, GenerationResult, DOC_TYPES } from './proposal-generator';
+import { fetchAndParseAttachments } from './attachments/fetcher';
 import { SCORE_THRESHOLD } from './config';
 
 export interface PipelineResult {
@@ -50,6 +51,31 @@ export async function runBidPipeline(
     proposals: [],
     errors: [],
   };
+
+  // 0단계: 첨부파일 다운로드 + 파싱 (공고문/규격서/제안요청서 등)
+  // score >= ATTACHMENT_FETCH 조건은 runAutoPipeline 에서 이미 필터링되지만,
+  // 수동 트리거 경로도 커버하기 위해 여기서도 점수 체크 후 스킵.
+  if ((bid.total_score ?? 0) >= SCORE_THRESHOLD.ATTACHMENT_FETCH) {
+    try {
+      await log('📎 첨부파일 다운로드 + 파싱 시작');
+      const attRes = await fetchAndParseAttachments(bid);
+      await log(
+        `✅ 첨부파일: 다운로드 ${attRes.downloaded}건 / 파싱 ${attRes.parsed}건 / 실패 ${attRes.failed}건`
+      );
+      // 후속 단계에서 최신 attachment_text 를 읽을 수 있도록 bid 객체 갱신
+      const refreshed = await getBidById(bidId);
+      if (refreshed) {
+        result.bid = refreshed;
+      }
+    } catch (e: any) {
+      result.errors.push(`첨부파일: ${e.message}`);
+      await log(`❌ 첨부파일 단계 실패: ${e.message}`);
+    }
+  } else {
+    await log(
+      `⏭️  첨부파일 스킵 (total_score ${bid.total_score} < ${SCORE_THRESHOLD.ATTACHMENT_FETCH})`
+    );
+  }
 
   // 체크리스트·투찰가·제안서는 서로 독립적이므로 **전부 병렬로 실행**.
   // 순차 실행 시 약 5-6분 → 병렬 실행 시 가장 느린 한 단계(제안서 병렬)로 수렴 → 약 60-90초.

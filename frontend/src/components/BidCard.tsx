@@ -3,6 +3,7 @@ import { Bid } from '../types';
 import ScoreGauge from './ScoreGauge';
 import ProposalPanel from './ProposalPanel';
 import PipelinePanel from './PipelinePanel';
+import { AttachmentsPanel } from './AttachmentsPanel';
 
 interface BidCardProps {
   bid: Bid;
@@ -204,6 +205,9 @@ export default function BidCard({ bid, onToggleBookmark }: BidCardProps) {
                   <p className="text-xs text-[#CBD5E1]">{bid.suggested_strategy}</p>
                 </div>
               )}
+
+              {/* Attachments — score >= 70 공고만 표시 (파이프라인 ATTACHMENT_FETCH 기준) */}
+              {bid.total_score >= 70 && <AttachmentsPanel bidId={bid.id} />}
 
               {/* Bottom meta */}
               <div className="flex flex-wrap items-center gap-x-4 text-[10px] text-[#64748B]">
