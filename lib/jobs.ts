@@ -49,14 +49,31 @@ export async function createJob(
   return data.id as number;
 }
 
-// Append a log line. Reads current logs, concatenates, updates.
-// In serverless there's only one writer per job so no races in practice.
+// Per-job serialization queue. Parallelized pipeline branches in the same
+// Lambda would otherwise race the read-modify-write of the `logs` field and
+// overwrite each other. Chaining the writes through one promise per jobId
+// within a single invocation is enough — cross-invocation races aren't a
+// concern because only one worker writes to a given job at a time.
+const jobLogQueue: Map<number, Promise<void>> = new Map();
+
 export async function appendJobLog(jobId: number, line: string): Promise<void> {
-  const sb = getSupabase();
-  const { data } = await sb.from('jobs').select('logs').eq('id', jobId).maybeSingle();
-  const prev = (data?.logs as string) || '';
-  const next = `${prev}[${ts()}] ${line}\n`;
-  await sb.from('jobs').update({ logs: next }).eq('id', jobId);
+  const prev = jobLogQueue.get(jobId) || Promise.resolve();
+  const next = prev
+    .catch(() => {})
+    .then(async () => {
+      const sb = getSupabase();
+      const { data } = await sb.from('jobs').select('logs').eq('id', jobId).maybeSingle();
+      const curr = (data?.logs as string) || '';
+      const updated = `${curr}[${ts()}] ${line}\n`;
+      await sb.from('jobs').update({ logs: updated }).eq('id', jobId);
+    });
+  jobLogQueue.set(jobId, next);
+  try {
+    await next;
+  } finally {
+    // Drop the reference once it's the tail so the map doesn't leak.
+    if (jobLogQueue.get(jobId) === next) jobLogQueue.delete(jobId);
+  }
 }
 
 export async function finishJob(
