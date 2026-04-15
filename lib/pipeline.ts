@@ -51,37 +51,56 @@ export async function runBidPipeline(
     errors: [],
   };
 
-  try {
-    await log('📋 체크리스트 생성 중...');
-    result.checklist = await generateChecklist(bidId);
-    await log(`✅ 체크리스트: ${result.checklist.items.length}개 항목 (준비 예상 ${result.checklist.estimated_prep_days}일)`);
-  } catch (error: any) {
-    result.errors.push(`체크리스트: ${error.message}`);
-    await log(`❌ 체크리스트 실패: ${error.message}`);
+  // 체크리스트·투찰가·제안서는 서로 독립적이므로 **전부 병렬로 실행**.
+  // 순차 실행 시 약 5-6분 → 병렬 실행 시 가장 느린 한 단계(제안서 병렬)로 수렴 → 약 60-90초.
+  // 300초 워커 한도 내에서 확실히 완주한다.
+  const started = Date.now();
+  await log('⚡ 파이프라인 3단계 병렬 실행 (체크리스트 + 투찰가 + 제안서 6종)');
+
+  const [checklistRes, priceRes, proposalsRes] = await Promise.allSettled([
+    (async () => {
+      await log('📋 체크리스트 생성 중...');
+      const c = await generateChecklist(bidId);
+      await log(`✅ 체크리스트: ${c.items.length}개 항목 (준비 예상 ${c.estimated_prep_days}일)`);
+      return c;
+    })(),
+    (async () => {
+      await log('💰 투찰가격 추천 중...');
+      const p = await generatePriceAdvice(bidId);
+      await log(`✅ 투찰가 추천: ${p.recommended_bid_price.toLocaleString()}원 (${p.bid_rate}%)`);
+      return p;
+    })(),
+    (async () => {
+      await log(`📝 제안서 ${Object.keys(DOC_TYPES).length}종 병렬 생성 시작`);
+      const results = await generateAllProposals(bidId, { onLog: options.onLog });
+      const success = results.filter(p => p.success).length;
+      await log(`✅ 제안서: ${success}/${results.length}건 완료`);
+      return results;
+    })(),
+  ]);
+
+  if (checklistRes.status === 'fulfilled') result.checklist = checklistRes.value;
+  else {
+    const msg = checklistRes.reason?.message || String(checklistRes.reason);
+    result.errors.push(`체크리스트: ${msg}`);
+    await log(`❌ 체크리스트 실패: ${msg}`);
   }
 
-  await sleep(1000);
-
-  try {
-    await log('💰 투찰가격 추천 중...');
-    result.priceAdvice = await generatePriceAdvice(bidId);
-    await log(`✅ 투찰가 추천: ${result.priceAdvice.recommended_bid_price.toLocaleString()}원 (${result.priceAdvice.bid_rate}%)`);
-  } catch (error: any) {
-    result.errors.push(`투찰가격: ${error.message}`);
-    await log(`❌ 투찰가격 실패: ${error.message}`);
+  if (priceRes.status === 'fulfilled') result.priceAdvice = priceRes.value;
+  else {
+    const msg = priceRes.reason?.message || String(priceRes.reason);
+    result.errors.push(`투찰가격: ${msg}`);
+    await log(`❌ 투찰가격 실패: ${msg}`);
   }
 
-  await sleep(1000);
-
-  try {
-    await log(`📝 제안서 ${Object.keys(DOC_TYPES).length}종 생성 중...`);
-    result.proposals = await generateAllProposals(bidId, { onLog: options.onLog });
-    const success = result.proposals.filter(p => p.success).length;
-    await log(`✅ 제안서: ${success}/${result.proposals.length}건 완료`);
-  } catch (error: any) {
-    result.errors.push(`제안서: ${error.message}`);
-    await log(`❌ 제안서 실패: ${error.message}`);
+  if (proposalsRes.status === 'fulfilled') result.proposals = proposalsRes.value;
+  else {
+    const msg = proposalsRes.reason?.message || String(proposalsRes.reason);
+    result.errors.push(`제안서: ${msg}`);
+    await log(`❌ 제안서 실패: ${msg}`);
   }
+
+  const totalSecs = ((Date.now() - started) / 1000).toFixed(1);
 
   // Persist pipeline result
   await savePipelineResult(bid.bid_ntce_no, {
@@ -93,7 +112,7 @@ export async function runBidPipeline(
     status: result.errors.length === 0 ? 'SUCCESS' : 'PARTIAL',
   });
 
-  await log(`🏁 파이프라인 완료: 에러 ${result.errors.length}건`);
+  await log(`🏁 파이프라인 완료: 에러 ${result.errors.length}건 (총 ${totalSecs}s)`);
   return result;
 }
 

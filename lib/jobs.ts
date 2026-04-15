@@ -96,10 +96,62 @@ export async function failJob(jobId: number, error: string): Promise<void> {
     .eq('id', jobId);
 }
 
+// Jobs that exceed this wall-clock budget without finishing are assumed to
+// have been killed by the Vercel Lambda timeout (maxDuration=300s). Give a
+// bit of slack above 300s so we don't race legitimate in-flight finishes.
+const ORPHAN_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+
+/**
+ * Mark a single job as failed if it's been stuck in 'running' past ORPHAN_TIMEOUT_MS.
+ * Called lazily from getJob so orphans self-resolve when the frontend polls them.
+ */
+async function maybeAutoFailOrphan(job: Job): Promise<Job> {
+  if (job.status !== 'running') return job;
+  const started = new Date(job.started_at || job.created_at).getTime();
+  if (Number.isNaN(started)) return job;
+  if (Date.now() - started < ORPHAN_TIMEOUT_MS) return job;
+
+  const sb = getSupabase();
+  const reason = `워커 타임아웃 (${Math.round((Date.now() - started) / 1000)}s 경과, 300초 Lambda 한도 초과로 추정)`;
+  const next = `${job.logs || ''}[${ts()}] ⏱ ${reason}\n`;
+  await sb
+    .from('jobs')
+    .update({
+      status: 'failed',
+      logs: next,
+      error: reason,
+      finished_at: new Date().toISOString(),
+    })
+    .eq('id', job.id)
+    .eq('status', 'running'); // guard against races with a worker that's actually finishing
+
+  return { ...job, status: 'failed', error: reason, logs: next, finished_at: new Date().toISOString() };
+}
+
 export async function getJob(jobId: number): Promise<Job | undefined> {
   const sb = getSupabase();
   const { data } = await sb.from('jobs').select('*').eq('id', jobId).maybeSingle();
-  return (data as Job) || undefined;
+  if (!data) return undefined;
+  return await maybeAutoFailOrphan(data as Job);
+}
+
+/**
+ * Bulk cleanup — can be called from a cron to reap orphans that nobody polls.
+ * Marks all jobs stuck in 'running' past the timeout as failed.
+ */
+export async function sweepOrphanJobs(): Promise<number> {
+  const sb = getSupabase();
+  const cutoff = new Date(Date.now() - ORPHAN_TIMEOUT_MS).toISOString();
+  const { data } = await sb
+    .from('jobs')
+    .select('*')
+    .eq('status', 'running')
+    .lt('started_at', cutoff);
+  const orphans = (data || []) as Job[];
+  for (const j of orphans) {
+    await maybeAutoFailOrphan(j);
+  }
+  return orphans.length;
 }
 
 export async function listJobsForBid(

@@ -157,19 +157,20 @@ const DOC_PROMPTS: Record<DocType, string> = {
 형식: 마크다운 표 위주. 5페이지 분량.`,
 };
 
-function sleep(ms: number): Promise<void> {
-  return new Promise(r => setTimeout(r, ms));
-}
-
-export async function generateProposal(bidId: number, docType: DocType): Promise<string> {
-  const bid = await getBidById(bidId);
-  if (!bid) throw new Error('공고를 찾을 수 없습니다');
-
-  const client = new OpenAI({
+function getOpenRouterClient(): OpenAI {
+  return new OpenAI({
     baseURL: 'https://openrouter.ai/api/v1',
     apiKey: ENV.OPENROUTER_API_KEY,
   });
+}
 
+// Internal: generate a proposal from an already-loaded Bid (skips a DB roundtrip).
+// The OpenAI client is injectable so generateAllProposals can share one.
+async function generateProposalForBid(
+  bid: Bid,
+  docType: DocType,
+  client: OpenAI = getOpenRouterClient()
+): Promise<string> {
   const systemPrompt = DOC_PROMPTS[docType];
   const userPrompt = `${COMPANY_PROFILE}\n\n${buildBidContext(bid)}\n\n위 정보를 바탕으로 ${DOC_TYPES[docType]}를 작성해주세요. 마크다운 형식으로, 제목은 "# ${DOC_TYPES[docType]}"로 시작하세요.`;
 
@@ -185,8 +186,14 @@ export async function generateProposal(bidId: number, docType: DocType): Promise
 
   const content = response.choices[0]?.message?.content || '';
   if (!content.trim()) throw new Error('AI 응답이 비어 있습니다');
-
   return content;
+}
+
+// Public single-doc entry point (used by the /api/bids/:id/proposals/:docType route).
+export async function generateProposal(bidId: number, docType: DocType): Promise<string> {
+  const bid = await getBidById(bidId);
+  if (!bid) throw new Error('공고를 찾을 수 없습니다');
+  return generateProposalForBid(bid, docType);
 }
 
 export interface GenerationResult {
@@ -200,6 +207,14 @@ export interface GenerateAllOptions {
   onLog?: (line: string) => void | Promise<void>;
 }
 
+/**
+ * 6종 제안서를 병렬 생성. 각 문서는 개별 OpenRouter 호출이므로 Promise.all 로 동시 실행한다.
+ * 이렇게 하면 총 소요시간은 "가장 느린 한 문서"로 수렴 (순차 대비 약 5-6배 단축).
+ * Vercel 워커의 300초 한도 내에 안정적으로 들어온다.
+ *
+ * 주의: OpenRouter의 동시 요청 rate limit은 Pro 기준 여유롭지만,
+ *      실패 시 개별 문서만 실패로 기록하고 나머지는 그대로 진행한다.
+ */
 export async function generateAllProposals(
   bidId: number,
   options: GenerateAllOptions = {}
@@ -211,26 +226,37 @@ export async function generateAllProposals(
     }
   };
 
-  const results: GenerationResult[] = [];
   const bid = await getBidById(bidId);
   if (!bid) throw new Error('공고를 찾을 수 없습니다');
 
-  const entries = Object.entries(DOC_TYPES);
-  let idx = 0;
-  for (const [docType, label] of entries) {
-    idx++;
-    try {
-      await log(`  📝 [${idx}/${entries.length}] ${label} 생성 중...`);
-      const content = await generateProposal(bidId, docType as DocType);
-      await saveProposal(bid.bid_ntce_no, docType, content);
-      results.push({ docType: docType as DocType, label, success: true });
-      await log(`  ✅ [${idx}/${entries.length}] ${label} 완료 (${content.length.toLocaleString()}자)`);
-      await sleep(1000);
-    } catch (error: any) {
-      results.push({ docType: docType as DocType, label, success: false, error: error.message });
-      await log(`  ❌ [${idx}/${entries.length}] ${label} 실패: ${error.message}`);
-    }
-  }
+  const entries = Object.entries(DOC_TYPES) as [DocType, string][];
+  const client = getOpenRouterClient();
+
+  await log(`  ⚡ 제안서 ${entries.length}종 병렬 생성 시작`);
+  const started = Date.now();
+
+  const results = await Promise.all(
+    entries.map(async ([docType, label], i): Promise<GenerationResult> => {
+      const idx = i + 1;
+      const t0 = Date.now();
+      try {
+        await log(`  📝 [${idx}/${entries.length}] ${label} 시작`);
+        const content = await generateProposalForBid(bid, docType, client);
+        await saveProposal(bid.bid_ntce_no, docType, content);
+        const secs = ((Date.now() - t0) / 1000).toFixed(1);
+        await log(`  ✅ [${idx}/${entries.length}] ${label} 완료 (${content.length.toLocaleString()}자, ${secs}s)`);
+        return { docType, label, success: true };
+      } catch (error: any) {
+        const secs = ((Date.now() - t0) / 1000).toFixed(1);
+        await log(`  ❌ [${idx}/${entries.length}] ${label} 실패 (${secs}s): ${error.message}`);
+        return { docType, label, success: false, error: error.message };
+      }
+    })
+  );
+
+  const totalSecs = ((Date.now() - started) / 1000).toFixed(1);
+  const okCount = results.filter(r => r.success).length;
+  await log(`  🏁 제안서 병렬 생성 종료: ${okCount}/${entries.length}종 성공 (총 ${totalSecs}s)`);
 
   return results;
 }
