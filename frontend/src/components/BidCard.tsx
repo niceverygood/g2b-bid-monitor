@@ -214,6 +214,17 @@ export default function BidCard({ bid, onToggleBookmark }: BidCardProps) {
                   >
                     📄 제안서 생성
                   </button>
+                  {bid.bid_ntce_dtl_url && (
+                    <a
+                      href={bid.bid_ntce_dtl_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3 py-1.5 bg-gradient-to-r from-[#F59E0B] to-[#EF4444] hover:from-[#D97706] hover:to-[#DC2626] text-white text-xs font-medium rounded-lg transition-all"
+                      title="나라장터 입찰서 제출 페이지로 이동 (공인인증서 로그인 필요)"
+                    >
+                      📮 지원하기
+                    </a>
+                  )}
                 </div>
               </div>
             </div>

@@ -1,13 +1,12 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { resolveBid, getPipelineResult } from '../../../lib/db';
-import { runBidPipeline } from '../../../lib/pipeline';
-import { notifyPipelineResult } from '../../../lib/notifier';
 import { generateChecklist } from '../../../lib/checklist-generator';
 import { generatePriceAdvice } from '../../../lib/price-advisor';
-import { createJob, makeJobLogger, finishJob, failJob, listJobsForBid } from '../../../lib/jobs';
+import { createJob, dispatchJobWorker, listJobsForBid } from '../../../lib/jobs';
 
-// maxDuration only applies on Pro plans. Full pipeline is long-running.
-export const config = { maxDuration: 300 };
+// The actual pipeline runs in /api/jobs/[id]/run (see worker). This
+// handler is just a dispatcher so maxDuration can be short.
+export const config = { maxDuration: 10 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const key = (req.query.id as string)?.trim();
@@ -50,38 +49,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.json(advice);
       }
 
-      // Full pipeline: run in background. Return 202 + job_id immediately,
-      // then keep the function alive while runBidPipeline completes. The
-      // client polls GET /api/jobs/:id for status + live logs.
+      // Full pipeline: create job row, fire the worker endpoint via
+      // self-fetch, return 202 immediately. The worker at
+      // /api/jobs/:id/run executes runBidPipeline with its own 300s
+      // budget and streams logs into the job row.
       const jobId = await createJob(id, bid.bid_ntce_no, 'pipeline', bid.bid_ntce_nm);
-      res.status(202).json({
+      await dispatchJobWorker(jobId, { host: req.headers.host });
+      return res.status(202).json({
         job_id: jobId,
         status: 'running',
         bid_ntce_no: bid.bid_ntce_no,
         poll_url: `/api/jobs/${jobId}`,
       });
-
-      try {
-        const logger = makeJobLogger(jobId);
-        const result = await runBidPipeline(id, { onLog: logger });
-        const status = result.errors.length === 0 ? 'success' : 'partial';
-        await finishJob(
-          jobId,
-          status,
-          {
-            bid_ntce_no: bid.bid_ntce_no,
-            checklist: result.checklist,
-            price_advice: result.priceAdvice,
-            proposals: result.proposals,
-            errors: result.errors,
-          },
-          '🏁 파이프라인 완료'
-        );
-        await notifyPipelineResult(result).catch(() => {});
-      } catch (error: any) {
-        await failJob(jobId, error?.message || String(error));
-      }
-      return;
     }
 
     return res.status(405).json({ error: 'Method not allowed' });

@@ -4,11 +4,12 @@
   "outputDirectory": "frontend/dist",
   "framework": null,
   "functions": {
-    "api/bids/[id]/pipeline.ts": { "maxDuration": 300 },
+    "api/bids/[id]/pipeline.ts": { "maxDuration": 10 },
     "api/bids/[id]/proposals/index.ts": { "maxDuration": 300 },
     "api/bids/[id]/proposals/[docType].ts": { "maxDuration": 120 },
     "api/bids/[id]/jobs.ts": { "maxDuration": 10 },
     "api/jobs/[id].ts": { "maxDuration": 10 },
+    "api/jobs/[id]/run.ts": { "maxDuration": 300 },
     "api/collect.ts": { "maxDuration": 300 },
     "api/cron/collect.ts": { "maxDuration": 300 },
     "api/cron/auto-pipeline.ts": { "maxDuration": 300 }
