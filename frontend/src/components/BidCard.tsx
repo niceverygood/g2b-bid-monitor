@@ -60,9 +60,18 @@ export default function BidCard({ bid, onToggleBookmark }: BidCardProps) {
 
   const badge = REC_BADGE[bid.recommendation] || REC_BADGE.NOT_ANALYZED;
   const dday = getDDay(bid.bid_clse_dt);
-  const scores = bid.scores_json ? JSON.parse(bid.scores_json) : {};
-  const keyPoints: string[] = bid.key_points_json ? JSON.parse(bid.key_points_json) : [];
-  const risks: string[] = bid.risks_json ? JSON.parse(bid.risks_json) : [];
+  // Supabase jsonb columns come back as already-parsed objects/arrays, but older
+  // SQLite rows were plain strings. Handle both shapes defensively.
+  const parseJson = <T,>(v: unknown, fallback: T): T => {
+    if (v == null) return fallback;
+    if (typeof v === 'string') {
+      try { return JSON.parse(v) as T; } catch { return fallback; }
+    }
+    return v as T;
+  };
+  const scores = parseJson<Record<string, number>>(bid.scores_json, {});
+  const keyPoints = parseJson<string[]>(bid.key_points_json, []);
+  const risks = parseJson<string[]>(bid.risks_json, []);
 
   const scoreLabels = [
     { key: 'techFit', label: '기술' },
