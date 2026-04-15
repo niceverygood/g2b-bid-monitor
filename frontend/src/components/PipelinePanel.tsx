@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { PipelineResult, ChecklistItem, PriceBreakdownItem } from '../types';
+import { PipelineResult, ChecklistItem, PriceBreakdownItem, Bid } from '../types';
 import JobLogView from './JobLogView';
 
 const API_BASE = '/api';
@@ -8,17 +8,37 @@ interface PipelinePanelProps {
   bidId: number;
   bidName: string;
   onClose: () => void;
+  bid?: Bid;
 }
 
-type Tab = 'overview' | 'checklist' | 'price' | 'proposals' | 'logs';
+type Tab = 'overview' | 'submit' | 'checklist' | 'price' | 'proposals' | 'logs';
 
-export default function PipelinePanel({ bidId, bidName, onClose }: PipelinePanelProps) {
+export default function PipelinePanel({ bidId, bidName, onClose, bid }: PipelinePanelProps) {
   const [data, setData] = useState<PipelineResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [jobId, setJobId] = useState<number | null>(null);
   const [starting, setStarting] = useState(false);
   const [tab, setTab] = useState<Tab>('overview');
   const [checklistState, setChecklistState] = useState<ChecklistItem[]>([]);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  async function copy(text: string, key: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(k => (k === key ? null : k)), 1500);
+    } catch {
+      // Clipboard blocked — fall back to a hidden textarea
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch {}
+      document.body.removeChild(ta);
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(k => (k === key ? null : k)), 1500);
+    }
+  }
 
   const fetchPipeline = useCallback(async () => {
     try {
@@ -112,6 +132,7 @@ export default function PipelinePanel({ bidId, bidName, onClose }: PipelinePanel
         <div className="flex border-b bg-gray-50">
           {([
             ['overview', '📊 개요'],
+            ['submit', '📮 제출키트'],
             ['checklist', '📋 체크리스트'],
             ['price', '💰 투찰가격'],
             ['proposals', '📝 제안서'],
@@ -137,6 +158,16 @@ export default function PipelinePanel({ bidId, bidName, onClose }: PipelinePanel
             <div className="flex items-center justify-center h-48">
               <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" />
             </div>
+          ) : !data && !jobId && tab === 'submit' ? (
+            <SubmitKit
+              bid={bid}
+              bidName={bidName}
+              bidId={bidId}
+              data={null}
+              onCopy={copy}
+              copiedKey={copiedKey}
+              formatPrice={formatPrice}
+            />
           ) : !data && !jobId ? (
             <div className="text-center py-16">
               <div className="text-6xl mb-4">🚀</div>
@@ -157,6 +188,9 @@ export default function PipelinePanel({ bidId, bidName, onClose }: PipelinePanel
                   </span>
                 ) : '🚀 입찰 준비 시작 (백그라운드)'}
               </button>
+              <div className="mt-4 text-xs text-gray-400">
+                또는 <button onClick={() => setTab('submit')} className="text-blue-600 hover:underline">📮 제출키트</button> 탭에서 기본 정보만 복사할 수 있습니다
+              </div>
             </div>
           ) : !data && jobId ? (
             <div className="max-w-2xl mx-auto">
@@ -238,6 +272,19 @@ export default function PipelinePanel({ bidId, bidName, onClose }: PipelinePanel
                     </button>
                   </div>
                 </div>
+              )}
+
+              {/* Submit Kit Tab */}
+              {tab === 'submit' && (
+                <SubmitKit
+                  bid={bid}
+                  bidName={bidName}
+                  bidId={bidId}
+                  data={data}
+                  onCopy={copy}
+                  copiedKey={copiedKey}
+                  formatPrice={formatPrice}
+                />
               )}
 
               {/* Logs Tab */}
@@ -428,6 +475,231 @@ function StatusCard({ icon, title, value, sub, ok }: {
       </div>
       <p className="font-bold text-lg">{value}</p>
       {sub && <p className="text-xs text-gray-500 mt-1">{sub}</p>}
+    </div>
+  );
+}
+
+/**
+ * 제출 키트 — 사용자가 나라장터 입찰서 화면을 켰을 때
+ * 클립보드에 필요한 값을 원클릭으로 꽂아넣기 위한 패널.
+ * 모든 복사는 navigator.clipboard 기반 (PipelinePanel.copy).
+ */
+function SubmitKit({
+  bid, bidName, bidId, data, onCopy, copiedKey, formatPrice,
+}: {
+  bid?: Bid;
+  bidName: string;
+  bidId: number;
+  data: PipelineResult | null;
+  onCopy: (text: string, key: string) => void;
+  copiedKey: string | null;
+  formatPrice: (amount: number) => string;
+}) {
+  const bidNtceNo = bid?.bid_ntce_no || data?.bid_ntce_no || '';
+  const clseDt = bid?.bid_clse_dt || data?.bid_clse_dt || '';
+  const cntrctMthd = bid?.cntrct_mthd_nm || '';
+  const presmptPrce = bid?.presmpt_prce || 0;
+  const dtlUrl = bid?.bid_ntce_dtl_url || '';
+  const recommendedPrice = data?.price_advice?.recommended_bid_price || 0;
+  const bidRate = data?.price_advice?.bid_rate || 0;
+
+  const requiredChecklist = (data?.checklist?.items || []).filter(i => i.required);
+  const successfulProposals = (data?.proposal_status || []).filter(p => p.success);
+
+  // 전체 요약 — "📋 전체 복사" 버튼이 이걸 클립보드에 꽂음
+  const summaryText = [
+    `[${bidName}]`,
+    `공고번호: ${bidNtceNo}`,
+    `마감일시: ${(clseDt || '').slice(0, 16)}`,
+    cntrctMthd && `계약방법: ${cntrctMthd}`,
+    presmptPrce && `추정가격: ${presmptPrce.toLocaleString()}원`,
+    recommendedPrice && `추천 투찰가: ${recommendedPrice.toLocaleString()}원 (${bidRate}%)`,
+    '',
+    '[준비 서류 체크]',
+    ...requiredChecklist.map(i => `☐ ${i.item} — ${i.description || ''}`),
+  ].filter(Boolean).join('\n');
+
+  const CopyRow = ({ label, value, copyKey, mono = false }: {
+    label: string; value: string; copyKey: string; mono?: boolean;
+  }) => (
+    <div className="flex items-center gap-3 py-2 border-b border-gray-100 last:border-b-0">
+      <span className="text-xs font-medium text-gray-500 w-20 flex-shrink-0">{label}</span>
+      <span className={`flex-1 text-sm text-gray-800 ${mono ? 'font-mono' : ''} truncate`} title={value}>
+        {value || <span className="text-gray-300">—</span>}
+      </span>
+      <button
+        onClick={() => value && onCopy(value, copyKey)}
+        disabled={!value}
+        className={`px-2.5 py-1 rounded text-xs font-medium transition-colors flex-shrink-0 ${
+          copiedKey === copyKey
+            ? 'bg-green-100 text-green-700'
+            : 'bg-blue-50 text-blue-600 hover:bg-blue-100 disabled:bg-gray-50 disabled:text-gray-300'
+        }`}
+      >
+        {copiedKey === copyKey ? '✓ 복사됨' : '📋 복사'}
+      </button>
+    </div>
+  );
+
+  return (
+    <div className="space-y-5">
+      {/* 안내 배너 */}
+      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-4">
+        <h3 className="font-bold text-blue-900 text-sm mb-1">📮 나라장터 입찰서 제출 도우미</h3>
+        <p className="text-xs text-blue-700 leading-relaxed">
+          아래 값들은 공인인증서 로그인 후 입찰서 작성 화면에 붙여넣기만 하면 됩니다.
+          법적으로 최종 제출은 반드시 <b>본인</b>이 직접 클릭해야 합니다 (특별약관 제8조).
+        </p>
+      </div>
+
+      {/* 핵심 값 복사 */}
+      <div className="bg-white border rounded-xl overflow-hidden">
+        <h4 className="font-bold text-sm p-3 bg-gray-50 border-b flex items-center justify-between">
+          <span>⚡ 빠른 복사</span>
+          <button
+            onClick={() => onCopy(summaryText, 'all')}
+            className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
+              copiedKey === 'all' ? 'bg-green-500 text-white' : 'bg-blue-600 text-white hover:bg-blue-700'
+            }`}
+          >
+            {copiedKey === 'all' ? '✓ 복사됨' : '📋 전체 복사'}
+          </button>
+        </h4>
+        <div className="px-4">
+          <CopyRow label="공고번호" value={bidNtceNo} copyKey="no" mono />
+          {recommendedPrice > 0 && (
+            <CopyRow
+              label="투찰가"
+              value={recommendedPrice.toLocaleString()}
+              copyKey="price"
+              mono
+            />
+          )}
+          {recommendedPrice > 0 && (
+            <CopyRow
+              label="투찰가(숫자)"
+              value={String(recommendedPrice)}
+              copyKey="price-raw"
+              mono
+            />
+          )}
+          <CopyRow label="공고명" value={bidName} copyKey="name" />
+          <CopyRow label="마감일시" value={(clseDt || '').slice(0, 16)} copyKey="clse" mono />
+          {cntrctMthd && <CopyRow label="계약방법" value={cntrctMthd} copyKey="mthd" />}
+          {presmptPrce > 0 && (
+            <CopyRow
+              label="추정가격"
+              value={presmptPrce.toLocaleString()}
+              copyKey="est"
+              mono
+            />
+          )}
+        </div>
+      </div>
+
+      {/* 투찰가 하이라이트 카드 */}
+      {recommendedPrice > 0 && (
+        <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl p-5 text-white">
+          <p className="text-xs text-green-100 uppercase tracking-wider font-medium mb-1">
+            오늘 제출할 투찰 금액
+          </p>
+          <div className="flex items-baseline gap-3">
+            <span className="text-4xl font-bold font-mono">
+              {recommendedPrice.toLocaleString()}
+            </span>
+            <span className="text-lg text-green-100">원</span>
+            <span className="ml-auto text-sm bg-white/20 px-2 py-0.5 rounded">
+              투찰률 {bidRate}%
+            </span>
+          </div>
+          <div className="flex gap-2 mt-4">
+            <button
+              onClick={() => onCopy(String(recommendedPrice), 'big-price')}
+              className="flex-1 bg-white/20 hover:bg-white/30 text-white text-sm font-medium py-2 rounded-lg transition-colors"
+            >
+              {copiedKey === 'big-price' ? '✓ 복사됨' : '📋 금액만 복사'}
+            </button>
+            <button
+              onClick={() => onCopy(formatPrice(recommendedPrice), 'big-price-label')}
+              className="flex-1 bg-white/20 hover:bg-white/30 text-white text-sm font-medium py-2 rounded-lg transition-colors"
+            >
+              {copiedKey === 'big-price-label' ? '✓ 복사됨' : `📋 ${formatPrice(recommendedPrice)} 복사`}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 필수 제출 서류 체크 */}
+      {requiredChecklist.length > 0 && (
+        <div className="bg-white border rounded-xl p-4">
+          <h4 className="font-bold text-sm mb-3 flex items-center justify-between">
+            <span>📋 필수 제출 서류 ({requiredChecklist.length}개)</span>
+          </h4>
+          <ul className="space-y-1.5">
+            {requiredChecklist.map((item, i) => (
+              <li key={i} className="flex items-start gap-2 text-xs text-gray-700">
+                <span className="text-red-500 mt-0.5">•</span>
+                <div className="flex-1">
+                  <span className="font-medium">{item.item}</span>
+                  {item.description && (
+                    <span className="text-gray-500"> — {item.description}</span>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* AI 제안서 다운로드 */}
+      {successfulProposals.length > 0 && (
+        <div className="bg-white border rounded-xl p-4">
+          <h4 className="font-bold text-sm mb-3 flex items-center justify-between">
+            <span>📝 AI 생성 제안서 ({successfulProposals.length}/6종)</span>
+            <a
+              href={`${API_BASE}/bids/${bidId}/proposals?format=zip`}
+              className="px-3 py-1 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-xs font-medium rounded hover:opacity-90"
+            >
+              📦 ZIP 전체 다운로드
+            </a>
+          </h4>
+          <div className="grid grid-cols-2 gap-2">
+            {successfulProposals.map(p => (
+              <a
+                key={p.docType}
+                href={`${API_BASE}/bids/${bidId}/proposals/${p.docType}?format=docx`}
+                className="flex items-center gap-2 px-3 py-2 bg-gray-50 hover:bg-blue-50 rounded-lg text-xs text-gray-700 transition-colors"
+              >
+                <span>📄</span>
+                <span className="flex-1 truncate">{p.label}</span>
+                <span className="text-blue-600">.docx</span>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 나라장터 이동 */}
+      {dtlUrl && (
+        <a
+          href={dtlUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block w-full text-center px-6 py-4 bg-gradient-to-r from-[#F59E0B] to-[#EF4444] hover:from-[#D97706] hover:to-[#DC2626] text-white font-bold rounded-xl transition-all shadow-lg"
+        >
+          🚀 나라장터 입찰서 제출 페이지로 이동
+          <div className="text-xs font-normal text-white/80 mt-1">
+            공인인증서 로그인 후 본인이 직접 제출하세요
+          </div>
+        </a>
+      )}
+
+      {/* 파이프라인 미실행 시 안내 */}
+      {!data?.price_advice && !data?.checklist && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
+          💡 투찰가·체크리스트·제안서를 자동으로 준비하려면 <b>개요 탭에서 "입찰 준비 시작"</b> 을 먼저 실행하세요.
+        </div>
+      )}
     </div>
   );
 }

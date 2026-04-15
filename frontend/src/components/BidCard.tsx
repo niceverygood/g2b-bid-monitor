@@ -234,7 +234,12 @@ export default function BidCard({ bid, onToggleBookmark }: BidCardProps) {
             <ProposalPanel bidId={bid.id} onClose={() => setShowProposal(false)} />
           )}
           {showPipeline && (
-            <PipelinePanel bidId={bid.id} bidName={bid.bid_ntce_nm} onClose={() => setShowPipeline(false)} />
+            <PipelinePanel
+              bidId={bid.id}
+              bidName={bid.bid_ntce_nm}
+              bid={bid}
+              onClose={() => setShowPipeline(false)}
+            />
           )}
         </div>
 

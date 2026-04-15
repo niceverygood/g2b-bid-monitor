@@ -28,10 +28,10 @@ export default function App() {
   } = useBids();
 
   const statCards = [
-    { icon: '📋', label: '전체 공고', value: stats.total, color: '#3B82F6' },
-    { icon: '🔥', label: '적합 공고', value: stats.strongFit + stats.goodFit, color: '#10B981' },
+    { icon: '📋', label: '전체 공고', value: stats.total, color: '#3B82F6', action: () => updateFilters({ recommendation: '', withinDays: undefined, minScore: undefined, status: 'all' }) },
+    { icon: '🔥', label: '적합 공고', value: stats.strongFit + stats.goodFit, color: '#10B981', action: () => updateFilters({ recommendation: 'STRONG_FIT' }) },
     { icon: '📊', label: '평균 점수', value: `${stats.avgScore}점`, color: '#F59E0B' },
-    { icon: '⏰', label: '마감 임박', value: stats.urgentCount, color: '#EF4444' },
+    { icon: '⏰', label: '마감 임박', value: stats.urgentCount, color: '#EF4444', action: () => updateFilters({ withinDays: 7, minScore: 60, status: 'active', sort: 'deadline', order: 'asc', recommendation: '' }) },
   ];
 
   return (
@@ -66,13 +66,21 @@ export default function App() {
       <main className="max-w-[1024px] mx-auto px-4 py-6 space-y-6">
         {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {statCards.map(s => (
-            <div key={s.label} className="bg-[#0F172A] border border-[#1E293B] rounded-xl p-4">
-              <div className="text-lg mb-1">{s.icon}</div>
-              <div className="text-2xl font-bold" style={{ color: s.color }}>{s.value}</div>
-              <div className="text-xs text-[#94A3B8]">{s.label}</div>
-            </div>
-          ))}
+          {statCards.map(s => {
+            const clickable = 'action' in s && typeof s.action === 'function';
+            const Comp: any = clickable ? 'button' : 'div';
+            return (
+              <Comp
+                key={s.label}
+                onClick={clickable ? s.action : undefined}
+                className={`bg-[#0F172A] border border-[#1E293B] rounded-xl p-4 text-left transition-colors ${clickable ? 'hover:border-[#334155] hover:bg-[#131d33] cursor-pointer' : ''}`}
+              >
+                <div className="text-lg mb-1">{s.icon}</div>
+                <div className="text-2xl font-bold" style={{ color: s.color }}>{s.value}</div>
+                <div className="text-xs text-[#94A3B8]">{s.label}</div>
+              </Comp>
+            );
+          })}
         </div>
 
         {/* Filter */}
