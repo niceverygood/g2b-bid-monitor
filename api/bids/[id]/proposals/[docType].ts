@@ -23,14 +23,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (format === 'docx') {
         const title = `${DOC_TYPES[docType]} — ${bid.bid_ntce_nm}`;
         const buffer = await markdownToDocx(proposal.content, title);
-        const filename = safeFilename(`${DOC_TYPES[docType]}_${bid.bid_ntce_no}.docx`);
+        const asciiName = `${docType}_${bid.bid_ntce_no}.docx`;
+        const utf8Name = safeFilename(`${DOC_TYPES[docType]}_${bid.bid_ntce_no}.docx`);
         res.setHeader(
           'Content-Type',
           'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
         );
         res.setHeader(
           'Content-Disposition',
-          `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`
+          `attachment; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(utf8Name)}`
         );
         return res.send(buffer);
       }

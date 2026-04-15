@@ -16,6 +16,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (req.method === 'GET') {
       if (format === 'zip') {
+        // ASCII-safe filenames inside the zip for cross-platform unzip reliability
+        // (JSZip doesn't set the EFS UTF-8 flag, so Korean names break on macOS/Linux unzip)
+        const ORDER: Record<DocType, string> = {
+          technical: '01_technical',
+          execution: '02_execution',
+          personnel: '03_personnel',
+          company: '04_company',
+          track_record: '05_track_record',
+          pricing: '06_pricing',
+        };
         const files: { name: string; content: Buffer }[] = [];
         for (const docType of Object.keys(DOC_TYPES) as DocType[]) {
           const p = await getProposal(bid.bid_ntce_no, docType);
@@ -23,18 +33,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           const title = `${DOC_TYPES[docType]} — ${bid.bid_ntce_nm}`;
           const buf = await markdownToDocx(p.content, title);
           files.push({
-            name: safeFilename(`${DOC_TYPES[docType]}_${bid.bid_ntce_no}.docx`),
+            name: `${ORDER[docType]}_${bid.bid_ntce_no}.docx`,
             content: buf,
           });
         }
         if (files.length === 0) return res.status(404).json({ error: '생성된 제안서가 없습니다' });
         const zipBuf = await bundleZip(files);
-        const zipName = safeFilename(`바틀_제안서_${bid.bid_ntce_no}.zip`);
+        const zipName = `bottle_proposals_${bid.bid_ntce_no}.zip`;
         res.setHeader('Content-Type', 'application/zip');
-        res.setHeader(
-          'Content-Disposition',
-          `attachment; filename*=UTF-8''${encodeURIComponent(zipName)}`
-        );
+        res.setHeader('Content-Disposition', `attachment; filename="${zipName}"`);
         return res.send(zipBuf);
       }
 

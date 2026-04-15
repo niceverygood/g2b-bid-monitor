@@ -37,13 +37,13 @@ GET https://g2b-bid-monitor.vercel.app/api/bids/{bid_ntce_no}
 ```
 GET https://g2b-bid-monitor.vercel.app/api/bids/{bid_ntce_no}/proposals?format=zip
 ```
-응답은 zip 바이너리입니다. `~/Downloads/openclaw/g2b/<bid_ntce_no>/` 디렉토리를 만들고 zip을 저장 후 풀어줍니다. 풀린 파일은 6개 .docx:
-- `기술제안서_{bid_ntce_no}.docx`
-- `사업수행계획서_{bid_ntce_no}.docx`
-- `투입인력 현황표_{bid_ntce_no}.docx`
-- `회사소개서_{bid_ntce_no}.docx`
-- `수행실적표_{bid_ntce_no}.docx`
-- `가격제안서_{bid_ntce_no}.docx`
+응답은 zip 바이너리입니다. `~/Downloads/openclaw/g2b/<bid_ntce_no>/` 디렉토리를 만들고 zip을 저장 후 풀어줍니다. 풀린 파일은 6개 .docx (ASCII 슬러그로 정렬):
+- `01_technical_{bid_ntce_no}.docx` — 기술제안서
+- `02_execution_{bid_ntce_no}.docx` — 사업수행계획서
+- `03_personnel_{bid_ntce_no}.docx` — 투입인력 현황표
+- `04_company_{bid_ntce_no}.docx` — 회사소개서
+- `05_track_record_{bid_ntce_no}.docx` — 수행실적표
+- `06_pricing_{bid_ntce_no}.docx` — 가격제안서
 
 zip이 404면 제안서가 아직 생성 안 된 것이니 API로 먼저 생성합니다:
 ```
@@ -67,12 +67,12 @@ POST https://g2b-bid-monitor.vercel.app/api/bids/{bid_ntce_no}/proposals
 
 ### 6. 제안서 첨부
 업로드 버튼을 찾습니다(보통 "파일 첨부", "문서 업로드"). 각 문서를 해당 슬롯에 업로드:
-- "기술제안서" 슬롯 → `기술제안서_*.docx`
-- "사업수행계획서" 슬롯 → `사업수행계획서_*.docx`
-- "투입인력" 슬롯 → `투입인력 현황표_*.docx`
-- "회사소개" 슬롯 → `회사소개서_*.docx`
-- "실적" 슬롯 → `수행실적표_*.docx`
-- "가격" 또는 "금액" 슬롯 → `가격제안서_*.docx`
+- "기술제안서" 슬롯 → `01_technical_*.docx`
+- "사업수행계획서" 슬롯 → `02_execution_*.docx`
+- "투입인력" 슬롯 → `03_personnel_*.docx`
+- "회사소개" 슬롯 → `04_company_*.docx`
+- "실적" 슬롯 → `05_track_record_*.docx`
+- "가격" 또는 "금액" 슬롯 → `06_pricing_*.docx`
 
 슬롯 이름이 정확히 매칭 안 되면 `browser snapshot` 결과를 Slack에 붙여넣고 사용자에게 "어느 슬롯에 어느 파일을 올려야 하는지" 확인받습니다.
 
