@@ -19,8 +19,8 @@
     { "source": "/api/bids/:id/proposals/generate/:docType", "destination": "/api/bids/:id/proposals/:docType" }
   ],
   "crons": [
-    { "path": "/api/cron/collect", "schedule": "0 */2 * * *" },
-    { "path": "/api/cron/auto-pipeline", "schedule": "30 */3 * * *" },
+    { "path": "/api/cron/collect", "schedule": "0 0,5 * * *" },
+    { "path": "/api/cron/auto-pipeline", "schedule": "20 0,5 * * *" },
     { "path": "/api/cron/deadline", "schedule": "0 23,8 * * *" }
   ]
 }
