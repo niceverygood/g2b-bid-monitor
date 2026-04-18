@@ -1,7 +1,11 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { ENV } from '../../lib/config';
-import { sendDeadlineReminder, sendDailySummary } from '../../lib/notifier';
+import { sendDeadlineReminder } from '../../lib/notifier';
 
+/**
+ * 마감 임박 공고 알림 전용 cron.
+ * (일일 리포트는 collect cron 이 수집 직후 함께 보내므로 여기선 생략.)
+ */
 function isAuthorized(req: VercelRequest): boolean {
   const auth = req.headers.authorization || '';
   if (ENV.CRON_SECRET && auth === `Bearer ${ENV.CRON_SECRET}`) return true;
@@ -14,11 +18,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const sent = await sendDeadlineReminder();
-    // 일일 요약은 아침 타임에만
-    const hour = new Date().getHours();
-    if (hour >= 7 && hour <= 9) {
-      await sendDailySummary();
-    }
     res.json({ deadline_reminders: sent });
   } catch (error: any) {
     res.status(500).json({ error: error.message });

@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { ENV } from '../../lib/config';
 import { collectBids } from '../../lib/collector';
 import { analyzeBids } from '../../lib/analyzer';
-import { notifyNewBids } from '../../lib/notifier';
+import { notifyNewBids, sendDailySummary } from '../../lib/notifier';
 import { createLog, updateLog } from '../../lib/db';
 
 export const config = { maxDuration: 300 };
@@ -25,6 +25,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const collectResult = await collectBids();
     const analyzeResult = await analyzeBids(15);
     const notified = await notifyNewBids();
+
+    // 수집·분석이 끝나면 Slack 에 일일 리포트 발송
+    // (vercel.json 의 cron 이 KST 09:00 / 14:00 에 실행되므로 하루 2번 요약)
+    await sendDailySummary().catch((e) => {
+      console.error('sendDailySummary failed:', e.message);
+    });
 
     await updateLog(logId, {
       finished_at: new Date().toISOString(),
